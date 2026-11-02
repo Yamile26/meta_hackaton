@@ -7,8 +7,9 @@ Uso (desde la raíz del repo, con MODEL_API_KEY en .env o en el entorno):
 El WAV debe ser mono PCM 16 bits a 16 o 24 kHz. Convertir:
   ffmpeg -i nota.m4a -ac 1 -ar 24000 -c:a pcm_s16le -map_metadata -1 nota.wav
 
-Llamadas a la API por ejecución: 1 transcripción + 1 extracción + 1 verificación
-+ 1 redacción de alerta (si hay zona confirmada) + hasta 8 turnos del orquestador.
+Llamadas a la API por ejecución: 1 transcripción + 1 extracción + 1 lectura del boletín
+PDF (solo si no está en caché en data/runtime/) + 1 verificación + 1 redacción de alerta
+(si hay zona confirmada) + hasta 8 turnos del orquestador.
 Usa la evidencia SIMULADA de data/event/ salvo que haya GeoTIFF reales.
 """
 import argparse

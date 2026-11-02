@@ -6,6 +6,8 @@ openai>=1.40
 pydantic>=2.7
 requests>=2.31
 numpy>=1.26
+meta-sam-parser>=0.1.0  # parser oficial de la salida de SAM 3.1
+pypdf>=4  # valida que los lugares del boletín aparecen en el PDF
 # Opcional: solo si hay GeoTIFF reales en data/event/ (sin él se usan datos simulados)
 # rasterio>=1.3
 # Tests
