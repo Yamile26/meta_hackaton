@@ -1,9 +1,11 @@
 import numpy as np
+import pytest
 
-from src.models.schemas import Place
+from src.models.schemas import ClaimType, Place, Report, VerdictStatus
 from src.tools import flood_map
 from src.tools.event_data import DEFAULT_EVENT_DIR, load_event, load_simulated, ndwi_from_rasters
 from src.tools.gazetteer import load_gazetteer
+from src.tools.verify import decide_verdict
 
 PLACES = load_gazetteer()
 
@@ -59,3 +61,44 @@ def test_ndwi_from_rasters_replaces_ndwi_evidence():
     assert z["Nuevo Horizonte"].flooded_fraction == next(
         s.flooded_fraction for s in base.zones if s.name == "Nuevo Horizonte"
     )
+
+
+# --- guion del demo -------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "place,status",
+    [
+        ("Jirón Progreso", VerdictStatus.confirmado),
+        ("Nuevo Horizonte", VerdictStatus.confirmado),
+        ("Avenida Central", VerdictStatus.contradicho),
+        ("Las Palmeras", VerdictStatus.sin_evidencia),
+        ("Jirón Los Cedros", VerdictStatus.sin_evidencia),
+    ],
+)
+def test_demo_scenario_verdicts(place, status):
+    data = load_event(PLACES)
+    r = Report(id="R-01", text="se rompió el dique, todo inundado", place_name=place, claim_type=ClaimType.flood, severity=3)
+    v = decide_verdict(r, data.evidence)
+    assert v.status == status
+    assert set(v.evidence_ids) <= {e.id for e in data.evidence}
+
+
+def test_demo_scenario_sources():
+    data = load_event(PLACES)
+    by_place = {}
+    for e in data.evidence:
+        by_place.setdefault(e.place_name, set()).add(e.type)
+    assert by_place["Jirón Progreso"] == {"ndwi", "bulletin"}
+    assert by_place["Nuevo Horizonte"] == {"ndwi", "photo"}
+    assert by_place["Avenida Central"] == {"ndwi"}
+    assert by_place["Jirón Los Cedros"] == {"ndwi"}
+    # rumor falso del dique: ninguna evidencia, y el único boletín no cubre Las Palmeras
+    assert "Las Palmeras" not in by_place
+    bulletins = [e for e in data.evidence if e.type == "bulletin"]
+    assert len(bulletins) == 1 and bulletins[0].place_name == "Jirón Progreso"
+    central = next(e for e in data.evidence if e.place_name == "Avenida Central")
+    assert "sin nubes" in central.summary
+    zones = {z.name: z for z in data.zones}
+    assert zones["Las Palmeras"].flooded_fraction == 0.0
+    layer_places = {f["properties"]["place_name"] for f in data.flood_layer["features"]}
+    assert layer_places == {"Jirón Progreso", "Nuevo Horizonte"}

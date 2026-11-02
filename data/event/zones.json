@@ -39,35 +39,35 @@
     },
     {
       "id": "Z-02",
-      "name": "Las Palmeras",
+      "name": "Nuevo Horizonte",
       "place_names": [
-        "Las Palmeras"
+        "Nuevo Horizonte"
       ],
-      "exposure": 0.9,
-      "flooded_fraction": 0.35,
+      "exposure": 0.6,
+      "flooded_fraction": 0.38,
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
             [
-              -74.5628,
-              -8.3737
+              -74.5677,
+              -8.393
             ],
             [
-              -74.5578,
-              -8.3737
+              -74.5627,
+              -8.393
             ],
             [
-              -74.5578,
-              -8.3687
+              -74.5627,
+              -8.388
             ],
             [
-              -74.5628,
-              -8.3687
+              -74.5677,
+              -8.388
             ],
             [
-              -74.5628,
-              -8.3737
+              -74.5677,
+              -8.393
             ]
           ]
         ]
@@ -75,35 +75,35 @@
     },
     {
       "id": "Z-03",
-      "name": "Nuevo Horizonte",
+      "name": "Avenida Central",
       "place_names": [
-        "Nuevo Horizonte"
+        "Avenida Central"
       ],
-      "exposure": 0.6,
-      "flooded_fraction": 0.02,
+      "exposure": 0.5,
+      "flooded_fraction": 0.0,
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
             [
-              -74.5677,
-              -8.393
+              -74.5506,
+              -8.3847
             ],
             [
-              -74.5627,
-              -8.393
+              -74.5456,
+              -8.3847
             ],
             [
-              -74.5627,
-              -8.388
+              -74.5456,
+              -8.3797
             ],
             [
-              -74.5677,
-              -8.388
+              -74.5506,
+              -8.3797
             ],
             [
-              -74.5677,
-              -8.393
+              -74.5506,
+              -8.3847
             ]
           ]
         ]
@@ -111,35 +111,35 @@
     },
     {
       "id": "Z-04",
-      "name": "Avenida Central",
+      "name": "Las Palmeras",
       "place_names": [
-        "Avenida Central"
+        "Las Palmeras"
       ],
-      "exposure": 0.5,
-      "flooded_fraction": 0.05,
+      "exposure": 0.9,
+      "flooded_fraction": 0.0,
       "geometry": {
         "type": "Polygon",
         "coordinates": [
           [
             [
-              -74.5506,
-              -8.3847
+              -74.5628,
+              -8.3737
             ],
             [
-              -74.5456,
-              -8.3847
+              -74.5578,
+              -8.3737
             ],
             [
-              -74.5456,
-              -8.3797
+              -74.5578,
+              -8.3687
             ],
             [
-              -74.5506,
-              -8.3797
+              -74.5628,
+              -8.3687
             ],
             [
-              -74.5506,
-              -8.3847
+              -74.5628,
+              -8.3737
             ]
           ]
         ]
