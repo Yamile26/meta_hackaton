@@ -18,7 +18,7 @@ from typing import Any, AsyncIterator, Optional
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -27,6 +27,7 @@ from src.agent import Centinela, PipelineError
 from src.clients.meta import validate_wav
 from src.models.schemas import AgentEvent, AlertDraft, Evidence, Report
 from src.tools import alert as alert_tools
+from src.tools import photo_eval
 from src.tools.audio import ALLOWED_FORMATS, AudioError, convert_to_wav, sniff_format
 
 log = logging.getLogger("centinela.api")
@@ -65,6 +66,13 @@ class RateLimiter:
 
 
 EXPENSIVE = {("POST", "/reports/audio"), ("POST", "/alerts/draft")}
+_PHOTO_PATH = re.compile(r"^/reports/[^/]+/photo$")
+_REPORT_ID = re.compile(r"^R-\d{1,6}$")
+_EVIDENCE_ID = re.compile(r"^EV-\d{1,6}$")
+
+
+def is_expensive(method: str, path: str) -> bool:
+    return (method, path) in EXPENSIVE or (method == "POST" and bool(_PHOTO_PATH.match(path)))
 
 
 def _client_ip(request: Request) -> str:
@@ -134,7 +142,7 @@ def create_app(
     async def _rate_limit(request: Request, call_next):
         ip = _client_ip(request)
         limiter_ok = general.allow(ip)
-        if limiter_ok and (request.method, request.url.path) in EXPENSIVE:
+        if limiter_ok and is_expensive(request.method, request.url.path):
             limiter_ok = costly.allow(ip)
         if not limiter_ok:
             return JSONResponse({"error": "demasiadas peticiones"}, status_code=429)
@@ -188,6 +196,34 @@ def create_app(
         assert run.report is not None
         return run.report
 
+    @app.post("/reports/{report_id}/photo")
+    async def post_photo(report_id: str, file: UploadFile = File(...)) -> dict[str, Any]:
+        c = get_centinela()
+        if not _REPORT_ID.match(report_id) or c.report(report_id) is None:
+            raise ApiError(404, "reporte no encontrado")
+        buf = bytearray()
+        while chunk := await file.read(CHUNK):
+            buf.extend(chunk)
+            if len(buf) > photo_eval.MAX_PHOTO_BYTES:
+                raise ApiError(413, "la foto supera 8 MB")
+        try:
+            photo_eval.validate_photo(bytes(buf))
+        except photo_eval.PhotoError as exc:
+            status = 400 if str(exc) == "archivo vacío" else 415
+            raise ApiError(status, str(exc)) from exc
+        try:
+            run = await run_in_threadpool(c.run_photo, report_id, bytes(buf))
+        except KeyError as exc:
+            raise ApiError(404, "reporte no encontrado") from exc
+        except PipelineError as exc:
+            raise ApiError(502, str(exc)) from exc
+        assert run.photo_result is not None and run.verdict is not None
+        return {
+            "evidence": run.photo_result.evidence.model_dump(mode="json"),
+            "verdict": run.verdict.model_dump(mode="json"),
+            "has_mask": c.mask_path(run.photo_result.evidence.id) is not None,
+        }
+
     @app.get("/reports")
     async def get_reports() -> list[dict[str, Any]]:
         return [
@@ -201,6 +237,15 @@ def create_app(
         if ev is None:
             raise ApiError(404, "evidencia no encontrada")
         return ev
+
+    @app.get("/evidence/{evidence_id}/mask")
+    async def get_mask(evidence_id: str) -> FileResponse:
+        if not _EVIDENCE_ID.match(evidence_id):
+            raise ApiError(404, "máscara no encontrada")
+        path = get_centinela().mask_path(evidence_id)
+        if path is None:
+            raise ApiError(404, "máscara no encontrada")
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
     @app.get("/zones")
     async def get_zones() -> dict[str, Any]:

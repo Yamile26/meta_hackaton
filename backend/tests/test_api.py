@@ -132,3 +132,52 @@ def test_sse_format():
     line = sse_format(AgentEvent(agent="voz", message="hola"))
     assert line.startswith("data: {") and line.endswith("\n\n")
     assert '"agent":"voz"' in line
+
+
+# --- foto y máscara -----------------------------------------------------------------
+
+from fakes import png_bytes  # noqa: E402
+
+
+def client_with_report():
+    client, c = make_client()
+    c.run(text="Jirón Progreso inundado")
+    return client, c
+
+
+def test_photo_upload_and_mask():
+    client, c = client_with_report()
+    r = client.post("/reports/R-01/photo", files={"file": ("foto.png", png_bytes(), "image/png")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    ev_id = body["evidence"]["id"]
+    assert body["evidence"]["type"] == "photo" and body["has_mask"] is True
+    assert body["verdict"]["report_id"] == "R-01"
+    assert client.get(f"/evidence/{ev_id}").json()["type"] == "photo"
+    m = client.get(f"/evidence/{ev_id}/mask")
+    assert m.status_code == 200 and m.headers["content-type"] == "image/png"
+    assert m.content.startswith(b"\x89PNG")
+
+
+def test_photo_validation(monkeypatch):
+    client, _ = client_with_report()
+    assert client.post("/reports/R-99/photo", files={"file": ("a.png", png_bytes(), "image/png")}).status_code == 404
+    assert client.post("/reports/..%2F/photo", files={"file": ("a.png", png_bytes(), "image/png")}).status_code == 404
+    assert client.post("/reports/R-01/photo", files={"file": ("a.png", b"GIF89a....", "image/png")}).status_code == 415
+    assert client.post("/reports/R-01/photo", files={"file": ("a.png", b"", "image/png")}).status_code == 400
+    monkeypatch.setattr("src.tools.photo_eval.MAX_PHOTO_BYTES", 10)
+    assert client.post("/reports/R-01/photo", files={"file": ("a.png", png_bytes(), "image/png")}).status_code == 413
+
+
+def test_mask_not_found():
+    client, _ = make_client()
+    assert client.get("/evidence/EV-01/mask").status_code == 404
+    assert client.get("/evidence/..%2F..%2Fsecret/mask").status_code == 404
+
+
+def test_photo_is_expensive_rate_limited():
+    client, c = make_client(expensive_rate_limit=1)
+    c.run(text="Jirón Progreso inundado")
+    files = {"file": ("a.png", png_bytes(), "image/png")}
+    assert client.post("/reports/R-01/photo", files=files).status_code == 200
+    assert client.post("/reports/R-01/photo", files=files).status_code == 429
