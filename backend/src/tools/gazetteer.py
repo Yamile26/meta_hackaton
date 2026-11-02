@@ -22,6 +22,9 @@ def _normalize(name: str) -> str:
     return " ".join(text.split())
 
 
+normalize = _normalize  # alias público
+
+
 @lru_cache(maxsize=4)
 def load_gazetteer(path: str | Path = DEFAULT_PATH) -> tuple[Place, ...]:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
