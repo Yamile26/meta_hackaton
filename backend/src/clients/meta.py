@@ -287,3 +287,41 @@ def verify_with_llm(report: Report, evidence: list[Evidence], *, client: Any = N
     if parsed is None:
         raise MetaAPIError("El modelo no devolvió una opinión válida")
     return sanitize_opinion(parsed, evidence)
+
+
+# ---------------------------------------------------------------------------
+# Redacción de alertas (los hechos y números vienen del código)
+# ---------------------------------------------------------------------------
+
+class AlertText(BaseModel):
+    text: str
+
+
+_ALERT_SYSTEM = (
+    "Redactas borradores de alerta por inundación para vecinos, en español claro y breve "
+    "(máximo 3 frases, menos de 400 caracteres). Usa SOLO los hechos dados entre <hechos>; "
+    "no agregues cifras, lugares ni datos que no estén ahí. No escribas los ids de evidencia. "
+    "Incluye una recomendación de seguridad. Un humano revisará el texto antes de enviarlo."
+)
+
+
+def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> str:
+    """Pide a Spark la redacción. El llamador valida el texto (ver tools/alert.py)."""
+    client = client or get_client()
+    public = {k: v for k, v in facts.items() if k not in ("evidence_ids", "zone_id")}
+    try:
+        resp = client.beta.chat.completions.parse(
+            model=TEXT_MODEL,
+            messages=[
+                {"role": "system", "content": _ALERT_SYSTEM},
+                {"role": "user", "content": f"<hechos>\n{json.dumps(public, ensure_ascii=False)}\n</hechos>"},
+            ],
+            response_format=AlertText,
+            temperature=TEMPERATURE,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise MetaAPIError(f"Fallo en redacción de alerta ({type(exc).__name__})") from exc
+    parsed = resp.choices[0].message.parsed
+    if parsed is None:
+        raise MetaAPIError("El modelo no devolvió un texto de alerta")
+    return parsed.text
