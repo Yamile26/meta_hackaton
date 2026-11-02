@@ -17,10 +17,10 @@ El repo es PÚBLICO. Lo construido debe distinguirse como hecho durante el event
 5. Toda afirmación del informe cita `evidence_ids`. Sin evidencia = `sin_evidencia`.
    Prohibido inventar evidencia.
 6. Los números (áreas, porcentajes, puntajes) se calculan en código, no con el LLM.
-7. Extracción y verificación con temperatura baja (0 a 0.2). Antes de parsear JSON
-   del modelo, quita las marcas de bloque de código (```json).
-8. Cada llamada a modelo debe poder funcionar sin depender de respuestas guardadas
-   en el servidor: manda siempre el contexto necesario.
+7. Extracción y verificación con temperatura baja (0 a 0.2) y structured output
+   (Pydantic) en lugar de parsear texto libre.
+8. Cada llamada a modelo manda siempre el contexto completo que necesita; nada de
+   depender de respuestas guardadas en el servidor.
 9. No cambies `backend/src/models/schemas.py` ni `docs/contract.md` sin pedirme permiso.
 10. Cada agente edita SOLO su carpeta. Commits pequeños y frecuentes, en inglés.
 11. Pídeme confirmación antes de instalar dependencias grandes o de hacer
@@ -41,6 +41,19 @@ backend/tests/, frontend/src/{components,lib,mocks}/, data/, eval/, docs/.
 Login, roles, base de datos SQL, despliegue complejo. Se documentan como decisiones
 de diseño en el README, no se implementan.
 
-## Referencia de la API de Meta
-Ejemplo de llamada real: `docs/meta_api_example.md` (pegar aquí la salida de "Get code").
-Docs: https://dev.meta.ai/docs/overview  ·  /docs/models  ·  /docs/speech-to-text
+## API de Meta (verificado en la documentación oficial)
+- Compatible con el SDK de OpenAI: `base_url="https://api.meta.ai/v1"`, modelo `muse-spark-1.3`.
+- Clave en la variable de entorno `MODEL_API_KEY`. El SDK NO la lee solo: pásala con `api_key=`.
+- Usa **Chat Completions** (sin estado). No dependas de `previous_response_id` ni de
+  respuestas guardadas en el servidor: pueden caducar.
+- JSON fiable: `client.beta.chat.completions.parse(..., response_format=ModelPydantic)`
+  (structured output). No parsees texto con bloques ```json.
+- Voz: `POST https://api.meta.ai/v1/asr/transcribe` (multipart: parte `request` JSON + parte `audio`).
+  El audio debe ser WAV mono PCM 16 bits a 16 o 24 kHz, máx. 10 min / 32 MB. Convierte con ffmpeg:
+  `ffmpeg -i in.webm -ac 1 -ar 24000 -c:a pcm_s16le -map_metadata -1 out.wav`.
+  Pasa `languageBias: ["Spanish"]` y `keywords` con los lugares del gazetteer.
+- Spark 1.3 admite entrada de imagen y PDF. Antes de implementarlo lee:
+  https://dev.meta.ai/docs/image-understanding  y  https://dev.meta.ai/docs/file-handling
+- Tool calling: https://dev.meta.ai/docs/tool-calling
+- SAM 3.1 (opcional): https://dev.meta.ai/docs/media-segmentation  y  /docs/sam/segmenting
+- Ejemplos verificados: `docs/meta_api_example.md`. Prueba rápida: `scripts/smoke_meta.py`.

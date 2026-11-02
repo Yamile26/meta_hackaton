@@ -4,7 +4,7 @@ Base: `http://localhost:8000`. JSON salvo indicación. Tipos: ver `backend/src/m
 
 | Método y ruta | Entrada | Salida |
 |---|---|---|
-| `POST /reports/audio` | multipart: `file` (audio, máx. 10 MB, mp3/wav/m4a/webm) | `Report` |
+| `POST /reports/audio` | multipart: `file` (audio, máx. 10 MB; webm/m4a/mp3/wav). El backend lo convierte con ffmpeg a WAV mono 24 kHz antes de transcribir (ffmpeg debe estar instalado) | `Report` |
 | `GET /reports` | n/a | `[{report: Report, verdict: Verdict}]` |
 | `GET /evidence/{id}` | n/a | `Evidence` |
 | `GET /zones` | n/a | GeoJSON FeatureCollection; properties = `Zone` |
