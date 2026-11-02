@@ -1,0 +1,10 @@
+{
+  "_note": "DATOS SIMULADOS para el escenario de demo (Pucallpa, Ucayali). Coordenadas aproximadas, no oficiales.",
+  "places": [
+    {"name": "Jirón Progreso", "lat": -8.3791, "lon": -74.5539, "aliases": ["Jr. Progreso", "Jr Progreso", "Girón Progreso"]},
+    {"name": "Avenida Central", "lat": -8.3822, "lon": -74.5481, "aliases": ["Av. Central", "Av Central"]},
+    {"name": "Las Palmeras", "lat": -8.3712, "lon": -74.5603, "aliases": ["AA.HH. Las Palmeras", "Palmeras"]},
+    {"name": "Nuevo Horizonte", "lat": -8.3905, "lon": -74.5652, "aliases": ["AA.HH. Nuevo Horizonte"]},
+    {"name": "Jirón Los Cedros", "lat": -8.3768, "lon": -74.5427, "aliases": ["Jr. Los Cedros", "Jr Los Cedros", "Los Cedros"]}
+  ]
+}
