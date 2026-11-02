@@ -39,6 +39,7 @@ class Report(BaseModel):
     severity: Optional[int] = Field(default=None, ge=1, le=3)
     houses_affected: Optional[int] = Field(default=None, ge=0)
     source_audio: Optional[str] = None
+    summary_en: Optional[str] = None  # resumen de una frase en inglés (extract_report)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
