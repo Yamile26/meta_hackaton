@@ -37,7 +37,10 @@ def test_alert_facts_without_confirmed_raises():
 def test_template_and_draft():
     f = alert_facts(ZONE, items())
     text = template_text(f)
-    assert "ALERTA GRAVE" in text and "42%" in text and "3 viviendas" in text
+    es, en = text.split("\n\n")
+    assert "ALERTA GRAVE" in es and "42%" in es and "3 viviendas" in es
+    assert "SEVERE ALERT" in en and "42%" in en and "3 homes" in en
+    assert "Jirón Progreso" in en  # el lugar no se traduce
     d = make_draft(f, text)
     assert d.approved is False and d.evidence_ids == ["EV-01", "EV-02"] and d.zone_id == "Z-01"
 

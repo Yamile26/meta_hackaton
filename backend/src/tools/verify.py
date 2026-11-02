@@ -1,4 +1,4 @@
-"""Verificación de reportes. El veredicto lo decide ESTE código; el LLM solo opina y explica.
+"""Verificación de reportes (los `reason` se escriben en inglés). El veredicto lo decide ESTE código; el LLM solo opina y explica.
 
 Reglas (deterministas, documentadas):
 - Solo se usan evidencias del mismo lugar del gazetteer que el reporte.
@@ -47,13 +47,13 @@ def decide_verdict(report: Report, evidence: list[Evidence]) -> Verdict:
         return Verdict(
             report_id=report.id,
             status=VerdictStatus.sin_evidencia,
-            reason="El lugar del reporte no está en el gazetteer.",
+            reason="The report location is not in the gazetteer.",
         )
     if report.claim_type not in VERIFIABLE_CLAIMS:
         return Verdict(
             report_id=report.id,
             status=VerdictStatus.sin_evidencia,
-            reason=f"Reclamo de tipo '{report.claim_type.value}': no verificable con evidencia física.",
+            reason=f"Claim type '{report.claim_type.value}' cannot be verified with physical evidence.",
         )
 
     relevant = [e for e in evidence if e.place_name == report.place_name]
@@ -67,8 +67,8 @@ def decide_verdict(report: Report, evidence: list[Evidence]) -> Verdict:
             status=VerdictStatus.sin_evidencia,
             evidence_ids=ids(supports + contradicts),
             reason=(
-                f"Evidencia contradictoria en {report.place_name}: respaldan "
-                f"{', '.join(ids(supports))}; contradicen {', '.join(ids(contradicts))}."
+                f"Conflicting evidence in {report.place_name}: supporting "
+                f"{', '.join(ids(supports))}; contradicting {', '.join(ids(contradicts))}."
             ),
             needs_review=True,
         )
@@ -76,12 +76,12 @@ def decide_verdict(report: Report, evidence: list[Evidence]) -> Verdict:
     ndwi_support = [e for e in supports if e.type == "ndwi"]
     support_types = {e.type for e in supports}
     if ndwi_support or len(support_types) >= 2:
-        basis = "NDWI satelital" if ndwi_support else "fuentes independientes"
+        basis = "satellite NDWI" if ndwi_support else "independent sources"
         return Verdict(
             report_id=report.id,
             status=VerdictStatus.confirmado,
             evidence_ids=ids(supports),
-            reason=f"Confirmado por {basis} en {report.place_name}: {', '.join(ids(supports))}.",
+            reason=f"Confirmed by {basis} in {report.place_name}: {', '.join(ids(supports))}.",
         )
 
     if contradicts:
@@ -90,20 +90,20 @@ def decide_verdict(report: Report, evidence: list[Evidence]) -> Verdict:
             status=VerdictStatus.contradicho,
             evidence_ids=ids(contradicts),
             reason=(
-                f"El NDWI en {report.place_name} no muestra agua nueva: "
+                f"NDWI in {report.place_name} shows no new water: "
                 f"{', '.join(ids(contradicts))}."
             ),
         )
 
     if supports:
         reason = (
-            f"Un solo indicio en {report.place_name} ({', '.join(ids(supports))}); "
-            "hace falta NDWI o una segunda fuente."
+            f"Only one indication in {report.place_name} ({', '.join(ids(supports))}); "
+            "NDWI or a second independent source is needed."
         )
     elif relevant:
-        reason = f"La evidencia de {report.place_name} no es concluyente."
+        reason = f"Evidence for {report.place_name} is inconclusive."
     else:
-        reason = f"No hay evidencia para {report.place_name}."
+        reason = f"No evidence for {report.place_name}."
     return Verdict(
         report_id=report.id,
         status=VerdictStatus.sin_evidencia,
@@ -120,13 +120,13 @@ def reconcile(
     needs_review = verdict.needs_review
     if llm_status is None:
         needs_review = True
-        reason += " Modelo no disponible: requiere revisión humana."
+        reason += " Model unavailable: human review required."
     else:
         if llm_status != verdict.status:
             needs_review = True
-            reason += f" El modelo opina '{llm_status.value}': requiere revisión humana."
+            reason += f" The model says '{llm_status.value}': human review required."
         if llm_reason:
-            reason += f" Explicación del modelo: {llm_reason}"
+            reason += f" Model explanation: {llm_reason}"
     return verdict.model_copy(
         update={"llm_status": llm_status, "needs_review": needs_review, "reason": reason}
     )

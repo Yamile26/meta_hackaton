@@ -38,6 +38,7 @@ def test_confirmed_by_ndwi():
     assert v.status == VerdictStatus.confirmado
     assert v.evidence_ids == ["EV-1"]
     assert not v.needs_review
+    assert v.reason == "Confirmed by satellite NDWI in Jirón Progreso: EV-1."
 
 
 def test_confirmed_by_two_independent_sources():
@@ -100,6 +101,7 @@ def test_reconcile_disagreement_keeps_code_status():
     assert v.status == VerdictStatus.sin_evidencia
     assert v.llm_status == VerdictStatus.confirmado
     assert v.needs_review
+    assert "The model says 'confirmado': human review required." in v.reason
 
 
 def test_verify_report_llm_failure_flags_review():

@@ -1,5 +1,8 @@
 """Borradores de alerta. Los hechos y números los calcula el código; el modelo solo redacta.
 
+AlertDraft.text = texto en español para la comunidad + línea en blanco + traducción al inglés.
+Los nombres de lugares se quedan en español en ambas versiones.
+
 Si el texto del modelo contiene un número que no está en los hechos, se descarta y se
 usa la plantilla determinista.
 """
@@ -41,7 +44,12 @@ def audience(facts: dict[str, Any]) -> str:
     return f"Vecinos de {facts['zone_name']}"
 
 
-def template_text(facts: dict[str, Any]) -> str:
+def bilingual(text_es: str, text_en: str) -> str:
+    """Formato de AlertDraft.text: español, línea en blanco, traducción al inglés."""
+    return f"{text_es.strip()}\n\n{text_en.strip()}"
+
+
+def template_es(facts: dict[str, Any]) -> str:
     level = {1: "PRECAUCIÓN", 2: "ALERTA", 3: "ALERTA GRAVE"}[facts["max_severity"]]
     parts = [
         f"{level} por inundación en {facts['zone_name']}.",
@@ -52,6 +60,23 @@ def template_text(facts: dict[str, Any]) -> str:
         parts.append(f"Al menos {facts['houses_affected']} viviendas afectadas.")
     parts.append("Aléjese de calles inundadas, desconecte la electricidad y siga a Defensa Civil.")
     return " ".join(parts)
+
+
+def template_en(facts: dict[str, Any]) -> str:
+    level = {1: "CAUTION", 2: "ALERT", 3: "SEVERE ALERT"}[facts["max_severity"]]
+    parts = [
+        f"{level}: flooding in {facts['zone_name']}.",
+        f"{facts['confirmed_reports']} confirmed report(s); "
+        f"about {facts['flooded_percent']}% of the area under water.",
+    ]
+    if facts["houses_affected"]:
+        parts.append(f"At least {facts['houses_affected']} homes affected.")
+    parts.append("Stay away from flooded streets, switch off electricity and follow Civil Defense.")
+    return " ".join(parts)
+
+
+def template_text(facts: dict[str, Any]) -> str:
+    return bilingual(template_es(facts), template_en(facts))
 
 
 def allowed_numbers(facts: dict[str, Any]) -> set[str]:

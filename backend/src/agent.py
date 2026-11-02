@@ -313,8 +313,11 @@ class Centinela:
         if self.use_llm:
             try:
                 candidate = meta.draft_alert_text(facts, client=self.client)
-                if alert_tools.text_is_safe(candidate, facts):
-                    text, origin = candidate, "modelo"
+                if alert_tools.text_is_safe(candidate.text_es, facts) and alert_tools.text_is_safe(
+                    candidate.text_en, facts
+                ):
+                    text = alert_tools.bilingual(candidate.text_es, candidate.text_en)
+                    origin = "modelo"
                 else:
                     self.emit("estratega", "El texto del modelo no pasó la validación; se usa la plantilla.")
             except meta.MetaAPIError:

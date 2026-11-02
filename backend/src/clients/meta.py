@@ -12,6 +12,7 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import re
 import wave
 from pathlib import Path
 from typing import Any, Optional
@@ -86,6 +87,30 @@ class ReportExtraction(BaseModel):
     claim_type: ClaimType
     severity: Optional[int]
     houses_affected: Optional[int]
+    summary_en: Optional[str]
+
+
+SUMMARY_MAX_CHARS = 300
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def clean_summary(summary: Optional[str], text: str, houses: Optional[int]) -> Optional[str]:
+    """Acepta el resumen en inglés solo si es una frase corta y no inventa cifras.
+
+    Toda cifra del resumen debe aparecer en el texto original o ser houses_affected
+    (p. ej. "tres casas" -> "3 houses").
+    """
+    if not summary:
+        return None
+    s = " ".join(summary.split())
+    if not s or len(s) > SUMMARY_MAX_CHARS:
+        return None
+    allowed = set(_NUMBER.findall(text))
+    if houses is not None:
+        allowed.add(str(houses))
+    if any(n not in allowed for n in _NUMBER.findall(s)):
+        return None
+    return s
 
 
 def _extract_system_prompt(places: tuple[Place, ...]) -> str:
@@ -99,6 +124,9 @@ def _extract_system_prompt(places: tuple[Place, ...]) -> str:
         "need (pide ayuda o recursos), other.\n"
         "severity: 1 leve, 2 moderada, 3 grave; null si no se puede saber.\n"
         "houses_affected: número de casas afectadas si se menciona; si no, null.\n"
+        "summary_en: UNA frase en inglés que resuma fielmente el reporte, sin agregar "
+        "datos que no estén en el texto. Deja los nombres de lugares en español tal como "
+        "aparecen. null si el texto no tiene contenido.\n"
         "No inventes datos: si falta, usa null."
     )
 
@@ -130,6 +158,7 @@ def build_report(
         severity=severity,
         houses_affected=houses,
         source_audio=source_audio,
+        summary_en=clean_summary(extraction.summary_en, text, houses),
     )
 
 
@@ -251,7 +280,8 @@ _VERIFY_SYSTEM = (
     "evidence_ids: SOLO ids que aparecen en las evidencias dadas; no inventes ninguno. "
     "Si no citas ninguno, el status debe ser sin_evidencia.\n"
     "Para NDWI, value es el cambio de NDWI (después menos antes): un aumento claro indica "
-    "agua nueva. reason: una o dos frases en español, sin cifras que no estén en los datos."
+    "agua nueva. reason: una o dos frases EN INGLÉS, sin cifras que no estén en los datos; "
+    "los nombres de lugares se quedan en español."
 )
 
 
@@ -294,19 +324,22 @@ def verify_with_llm(report: Report, evidence: list[Evidence], *, client: Any = N
 # ---------------------------------------------------------------------------
 
 class AlertText(BaseModel):
-    text: str
+    text_es: str
+    text_en: str
 
 
 _ALERT_SYSTEM = (
-    "Redactas borradores de alerta por inundación para vecinos, en español claro y breve "
-    "(máximo 3 frases, menos de 400 caracteres). Usa SOLO los hechos dados entre <hechos>; "
-    "no agregues cifras, lugares ni datos que no estén ahí. No escribas los ids de evidencia. "
-    "Incluye una recomendación de seguridad. Un humano revisará el texto antes de enviarlo."
+    "Redactas borradores de alerta por inundación para vecinos. text_es: en español claro y "
+    "breve (máximo 3 frases, menos de 400 caracteres). text_en: traducción fiel de text_es al "
+    "inglés, sin agregar ni quitar información; los nombres de lugares se quedan en español. "
+    "Usa SOLO los hechos dados entre <hechos>; no agregues cifras, lugares ni datos que no "
+    "estén ahí. No escribas los ids de evidencia. Incluye una recomendación de seguridad. "
+    "Un humano revisará el texto antes de enviarlo."
 )
 
 
-def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> str:
-    """Pide a Spark la redacción. El llamador valida el texto (ver tools/alert.py)."""
+def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> AlertText:
+    """Pide a Spark la redacción (es + en). El llamador valida ambos textos (ver tools/alert.py)."""
     client = client or get_client()
     public = {k: v for k, v in facts.items() if k not in ("evidence_ids", "zone_id")}
     try:
@@ -324,4 +357,4 @@ def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> str:
     parsed = resp.choices[0].message.parsed
     if parsed is None:
         raise MetaAPIError("El modelo no devolvió un texto de alerta")
-    return parsed.text
+    return parsed

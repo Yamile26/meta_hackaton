@@ -28,16 +28,22 @@ class FakeMeta:
         extraction: Optional[ReportExtraction] = None,
         opinion: Optional[LLMOpinion] = None,
         alert_text: str = "Inundación en Jirón Progreso. Aléjese de las calles con agua.",
+        alert_text_en: str = "Flooding in Jirón Progreso. Stay away from flooded streets.",
         fail_orchestrator: bool = False,
     ) -> None:
         self.turns = list(turns or [])
         self.extraction = extraction or ReportExtraction(
-            place_name="Jirón Progreso", claim_type=ClaimType.flood, severity=3, houses_affected=3
+            place_name="Jirón Progreso",
+            claim_type=ClaimType.flood,
+            severity=3,
+            houses_affected=3,
+            summary_en="A resident reports water entering 3 houses in Jirón Progreso.",
         )
         self.opinion = opinion or LLMOpinion(
             status=VerdictStatus.confirmado, evidence_ids=["EV-01"], reason="El NDWI subió."
         )
         self.alert_text = alert_text
+        self.alert_text_en = alert_text_en
         self.fail_orchestrator = fail_orchestrator
         self.create_calls: list[dict[str, Any]] = []
         self.parse_calls: list[dict[str, Any]] = []
@@ -57,7 +63,7 @@ class FakeMeta:
         parsed = {
             ReportExtraction: self.extraction,
             LLMOpinion: self.opinion,
-            AlertText: AlertText(text=self.alert_text),
+            AlertText: AlertText(text_es=self.alert_text, text_en=self.alert_text_en),
         }[fmt]
         return _resp(SimpleNamespace(parsed=parsed))
 

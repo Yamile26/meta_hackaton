@@ -28,6 +28,10 @@ def test_full_run_with_tool_calling(tmp_path):
     assert run.verdict.status == VerdictStatus.confirmado
     assert not run.verdict.needs_review
     assert run.alert is not None and run.alert.approved is False
+    es, en = run.alert.text.split("\n\n")
+    assert es.startswith("Inundación en Jirón Progreso") and en.startswith("Flooding in Jirón Progreso")
+    assert run.report.summary_en == "A resident reports water entering 3 houses in Jirón Progreso."
+    assert run.verdict.reason.startswith("Confirmed by satellite NDWI")
     assert run.alert.zone_id == "Z-01"
     assert c.zones[0].id == "Z-01" and c.zones[0].score > 0
     for kw in client.create_calls:
@@ -41,8 +45,10 @@ def test_full_run_with_tool_calling(tmp_path):
 def test_code_decides_verdict_even_if_llm_disagrees(tmp_path):
     client = FakeMeta(
         turns=ORDERED,
-        extraction=ReportExtraction(place_name="Nuevo Horizonte", claim_type=ClaimType.flood, severity=3, houses_affected=None),
-        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-06"], reason="Sí."),
+        extraction=ReportExtraction(
+            place_name="Avenida Central", claim_type=ClaimType.flood, severity=3, houses_affected=None, summary_en=None
+        ),
+        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-05"], reason="Yes."),
     )
     c = make(client)
     run = c.run(audio_path=tmp_path / "a.wav")
@@ -129,3 +135,12 @@ def test_event_bus_replays_history_and_delivers_live():
         return first.message, second.message
 
     assert asyncio.run(scenario()) == ("antes", "después")
+
+
+def test_invented_number_in_english_translation_falls_back_to_template():
+    c = make(FakeMeta(alert_text_en="Flooding in Jirón Progreso affects 999 homes."))
+    c.run(text="Jirón Progreso inundado")
+    text = c.draft_alert("Z-01").text
+    assert "999" not in text
+    es, en = text.split("\n\n")
+    assert "por inundación en Jirón Progreso" in es and "flooding in Jirón Progreso" in en
