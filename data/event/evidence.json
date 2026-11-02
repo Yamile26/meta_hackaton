@@ -1,0 +1,69 @@
+{
+  "_note": "DATOS SIMULADOS del escenario de demo. No provienen de satélite, fotos ni boletines reales.",
+  "evidence": [
+    {
+      "id": "EV-01",
+      "type": "ndwi",
+      "place_name": "Jirón Progreso",
+      "summary": "Cambio de NDWI en Jirón Progreso: +0.240 (antes/después de la crecida).",
+      "value": 0.24,
+      "source_path": null
+    },
+    {
+      "id": "EV-02",
+      "type": "photo",
+      "place_name": "Jirón Progreso",
+      "summary": "Foto vecinal: agua cubre la calzada y entra a viviendas (55% de la imagen segmentada como agua).",
+      "value": 0.55,
+      "source_path": null
+    },
+    {
+      "id": "EV-03",
+      "type": "bulletin",
+      "place_name": "Jirón Progreso",
+      "summary": "Boletín municipal N.º 12 lista Jirón Progreso como zona afectada.",
+      "value": null,
+      "source_path": null
+    },
+    {
+      "id": "EV-04",
+      "type": "ndwi",
+      "place_name": "Las Palmeras",
+      "summary": "Cambio de NDWI en Las Palmeras: +0.180.",
+      "value": 0.18,
+      "source_path": null
+    },
+    {
+      "id": "EV-05",
+      "type": "bulletin",
+      "place_name": "Las Palmeras",
+      "summary": "Boletín municipal N.º 12 lista Las Palmeras como zona afectada.",
+      "value": null,
+      "source_path": null
+    },
+    {
+      "id": "EV-06",
+      "type": "ndwi",
+      "place_name": "Nuevo Horizonte",
+      "summary": "Cambio de NDWI en Nuevo Horizonte: +0.010 (sin agua nueva).",
+      "value": 0.01,
+      "source_path": null
+    },
+    {
+      "id": "EV-07",
+      "type": "photo",
+      "place_name": "Avenida Central",
+      "summary": "Foto vecinal: charcos extensos en Avenida Central (40% de la imagen segmentada como agua).",
+      "value": 0.4,
+      "source_path": null
+    },
+    {
+      "id": "EV-08",
+      "type": "ndwi",
+      "place_name": "Jirón Los Cedros",
+      "summary": "Cambio de NDWI en Jirón Los Cedros: +0.060 (no concluyente).",
+      "value": 0.06,
+      "source_path": null
+    }
+  ]
+}

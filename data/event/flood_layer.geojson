@@ -1,0 +1,74 @@
+{
+  "type": "FeatureCollection",
+  "_note": "DATOS SIMULADOS del escenario de demo. No provienen de satélite, fotos ni boletines reales.",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.556,
+              -8.3807
+            ],
+            [
+              -74.5518,
+              -8.3807
+            ],
+            [
+              -74.5518,
+              -8.3775
+            ],
+            [
+              -74.556,
+              -8.3775
+            ],
+            [
+              -74.556,
+              -8.3807
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "source": "simulado",
+        "place_name": "Jirón Progreso"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.5621,
+              -8.3726
+            ],
+            [
+              -74.5585,
+              -8.3726
+            ],
+            [
+              -74.5585,
+              -8.3698
+            ],
+            [
+              -74.5621,
+              -8.3698
+            ],
+            [
+              -74.5621,
+              -8.3726
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "source": "simulado",
+        "place_name": "Las Palmeras"
+      }
+    }
+  ]
+}

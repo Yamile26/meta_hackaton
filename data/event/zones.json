@@ -1,0 +1,185 @@
+{
+  "_note": "DATOS SIMULADOS del escenario de demo. No provienen de satélite, fotos ni boletines reales. exposure = índice 0-1 de población expuesta y vulnerabilidad.",
+  "zones": [
+    {
+      "id": "Z-01",
+      "name": "Jirón Progreso",
+      "place_names": [
+        "Jirón Progreso"
+      ],
+      "exposure": 0.8,
+      "flooded_fraction": 0.42,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.5564,
+              -8.3816
+            ],
+            [
+              -74.5514,
+              -8.3816
+            ],
+            [
+              -74.5514,
+              -8.3766
+            ],
+            [
+              -74.5564,
+              -8.3766
+            ],
+            [
+              -74.5564,
+              -8.3816
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Z-02",
+      "name": "Las Palmeras",
+      "place_names": [
+        "Las Palmeras"
+      ],
+      "exposure": 0.9,
+      "flooded_fraction": 0.35,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.5628,
+              -8.3737
+            ],
+            [
+              -74.5578,
+              -8.3737
+            ],
+            [
+              -74.5578,
+              -8.3687
+            ],
+            [
+              -74.5628,
+              -8.3687
+            ],
+            [
+              -74.5628,
+              -8.3737
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Z-03",
+      "name": "Nuevo Horizonte",
+      "place_names": [
+        "Nuevo Horizonte"
+      ],
+      "exposure": 0.6,
+      "flooded_fraction": 0.02,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.5677,
+              -8.393
+            ],
+            [
+              -74.5627,
+              -8.393
+            ],
+            [
+              -74.5627,
+              -8.388
+            ],
+            [
+              -74.5677,
+              -8.388
+            ],
+            [
+              -74.5677,
+              -8.393
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Z-04",
+      "name": "Avenida Central",
+      "place_names": [
+        "Avenida Central"
+      ],
+      "exposure": 0.5,
+      "flooded_fraction": 0.05,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.5506,
+              -8.3847
+            ],
+            [
+              -74.5456,
+              -8.3847
+            ],
+            [
+              -74.5456,
+              -8.3797
+            ],
+            [
+              -74.5506,
+              -8.3797
+            ],
+            [
+              -74.5506,
+              -8.3847
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "id": "Z-05",
+      "name": "Jirón Los Cedros",
+      "place_names": [
+        "Jirón Los Cedros"
+      ],
+      "exposure": 0.4,
+      "flooded_fraction": 0.08,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.5452,
+              -8.3793
+            ],
+            [
+              -74.5402,
+              -8.3793
+            ],
+            [
+              -74.5402,
+              -8.3743
+            ],
+            [
+              -74.5452,
+              -8.3743
+            ],
+            [
+              -74.5452,
+              -8.3793
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
