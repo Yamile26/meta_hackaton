@@ -5,3 +5,4 @@ node_modules/
 *.pyc
 nota.*
 *.wav
+data/runtime/

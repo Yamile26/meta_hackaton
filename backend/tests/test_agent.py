@@ -144,3 +144,130 @@ def test_invented_number_in_english_translation_falls_back_to_template():
     assert "999" not in text
     es, en = text.split("\n\n")
     assert "por inundación en Jirón Progreso" in es and "flooding in Jirón Progreso" in en
+
+
+# --- boletín (Vigía) y foto (Ojo) ---------------------------------------------------
+
+from fakes import png_bytes  # noqa: E402
+from src.agent import AUDIO_STEPS, PHOTO_STEPS  # noqa: E402
+from src.tools.bulletin import BulletinExtraction, BulletinZone  # noqa: E402
+from src.tools.photo_eval import PhotoError  # noqa: E402
+
+
+def test_bulletin_pdf_replaces_simulated_bulletin_once(tmp_path):
+    client = FakeMeta()
+    c = make(client)
+    assert c.evidence["EV-02"].type == "bulletin"
+    c.run(text="Jirón Progreso inundado")
+    assert "EV-02" not in c.evidence
+    pdf_ev = [e for e in c.evidence.values() if e.type == "bulletin"]
+    assert len(pdf_ev) == 1 and pdf_ev[0].id == "EV-07" and pdf_ev[0].place_name == "Jirón Progreso"
+    assert pdf_ev[0].source_path == "bulletin.pdf"
+    c.run(text="otro reporte en Jirón Progreso")
+    assert len(client.calls_for(BulletinExtraction)) == 1  # no se vuelve a leer
+    assert any(e.agent == "vigia" and "Boletín incorporado" in e.message for e in c.bus.history())
+
+
+def test_bulletin_cache_survives_restart():
+    first = FakeMeta()
+    make(first).run(text="Jirón Progreso inundado")
+    second = FakeMeta()
+    c = make(second)
+    c.run(text="Jirón Progreso inundado")
+    assert second.calls_for(BulletinExtraction) == []
+    assert any("desde caché" in e.message for e in c.bus.history())
+
+
+def test_bulletin_cannot_add_dike_rumor_place():
+    client = FakeMeta(
+        bulletin=BulletinExtraction(
+            bulletin_ref="12",
+            issued_at=None,
+            zones=[
+                BulletinZone(place_name="Jirón Progreso", hazard="inundacion", time_window=None, intensity="alta"),
+                BulletinZone(place_name="Las Palmeras", hazard="desborde_de_rio", time_window=None, intensity="muy_alta"),
+            ],
+        ),
+        extraction=ReportExtraction(
+            place_name="Las Palmeras", claim_type=ClaimType.flood, severity=3, houses_affected=None,
+            summary_en="The dike broke.",
+        ),
+        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=[], reason="Bulletin."),
+    )
+    run = make(client).run(text="¡Se rompió el dique en Las Palmeras!")
+    assert run.verdict.status == VerdictStatus.sin_evidencia
+    assert run.verdict.evidence_ids == []
+
+
+def test_bulletin_failure_keeps_simulated_and_does_not_retry():
+    client = FakeMeta(fail_bulletin=True)
+    c = make(client)
+    c.run(text="Jirón Progreso inundado")
+    c.run(text="otro")
+    assert "EV-02" in c.evidence
+    assert len(client.calls_for(BulletinExtraction)) == 1
+
+
+def test_photo_flow_reverifies_report(tmp_path):
+    client = FakeMeta(
+        extraction=ReportExtraction(
+            place_name="Avenida Central", claim_type=ClaimType.flood, severity=2, houses_affected=None, summary_en=None
+        ),
+        opinion=LLMOpinion(status=VerdictStatus.contradicho, evidence_ids=["EV-05"], reason="NDWI flat."),
+    )
+    c = make(client)
+    first = c.run(text="Avenida Central inundada")
+    assert first.verdict.status == VerdictStatus.contradicho
+
+    client.turns = [[tool_call(s)] for s in PHOTO_STEPS]
+    run = c.run_photo("R-01", png_bytes())
+    assert run.done == list(PHOTO_STEPS)
+    ev = run.photo_result.evidence
+    assert ev.type == "photo" and ev.place_name == "Avenida Central" and ev.value == 0.4
+    assert c.evidence[ev.id] == ev
+    # NDWI contradice y la foto respalda: evidencia mixta -> revisión humana
+    assert run.verdict.status == VerdictStatus.sin_evidencia and run.verdict.needs_review
+    assert len(c.snapshot()) == 1 and c.snapshot()[0][1] == run.verdict
+    mask = c.mask_path(ev.id)
+    assert mask is not None and mask.read_bytes().startswith(b"\x89PNG")
+    assert (c.runtime_dir / ev.source_path).is_file()
+    tools_offered = {t["function"]["name"] for t in client.create_calls[-1]["tools"]}
+    assert tools_offered == set(PHOTO_STEPS)
+    assert any(e.agent == "ojo" and "Foto evaluada" in e.message for e in c.bus.history())
+
+
+def test_photo_confirms_with_second_source():
+    client = FakeMeta(
+        extraction=ReportExtraction(
+            place_name="Las Palmeras", claim_type=ClaimType.flood, severity=3, houses_affected=None, summary_en=None
+        ),
+    )
+    c = make(client)
+    c.run(text="Las Palmeras")
+    run = c.run_photo("R-01", png_bytes())
+    # una sola foto no basta: sigue sin_evidencia
+    assert run.verdict.status == VerdictStatus.sin_evidencia
+
+
+def test_photo_errors():
+    c = make(FakeMeta())
+    with pytest.raises(KeyError):
+        c.run_photo("R-99", png_bytes())
+    c.run(text="Jirón Progreso")
+    with pytest.raises(PhotoError):
+        c.run_photo("R-01", b"no es imagen")
+    failing = make(FakeMeta(sam_fail=("water", "person", "house", "vehicle")))
+    failing._client.photo = None
+    failing.run(text="Jirón Progreso")
+
+    def broken_vision(**kw):
+        raise RuntimeError("down")
+
+    failing._client.beta.chat.completions.parse = broken_vision
+    with pytest.raises(PipelineError):
+        failing.run_photo("R-01", png_bytes())
+    assert all(e.summary != "Analizando foto…" for e in failing.evidence.values())
+
+
+def test_audio_steps_include_bulletin_before_verify():
+    assert AUDIO_STEPS.index("read_bulletin") < AUDIO_STEPS.index("verify_report")
