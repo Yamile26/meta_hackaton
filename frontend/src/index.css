@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/*
+ * Centinela — "Amazonía" palette. ALL color tokens live here.
+ * Contrast (WCAG AA, checked): fg/bg 16.2 · muted/bg 5.1 · brand/white 5.3 ·
+ * forest/mint 10.2 · fg/ochre 6.2 · ochre-ink/white 6.4 · bad/white 5.1 ·
+ * none-ink/tint 5.4. Ochre (#D98A1F) is never used for small text: use accent-ink.
+ */
+@theme {
+  /* Surfaces & text */
+  --color-bg: #f7f9f4;
+  --color-surface: #ffffff;
+  --color-subtle: #eef4ef;
+  --color-line: #d5e0d8;
+  --color-fg: #0b1f17;
+  --color-fg-muted: #5b6f64;
+
+  /* Greens */
+  --color-forest: #0f3d2e;
+  --color-brand: #1f7a4d;
+  --color-leaf: #3fa66b;
+  --color-mint: #ddefe3;
+
+  /* Single warm accent: ONLY priority zones and the main alert button */
+  --color-accent: #d98a1f;
+  --color-accent-ink: #8a520e;
+
+  /* Water (NDWI) */
+  --color-water: #2e86ab;
+  --color-water-ink: #1f6a8a;
+
+  /* Verdict states (color = icon/marker, ink = text) */
+  --color-ok: #1f7a4d;
+  --color-bad: #c2412d;
+  --color-bad-ink: #a8361f;
+  --color-none: #7a8a82;
+  --color-none-ink: #56655d;
+
+  /* Tokens expected by shadcn/ui components */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-fg);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-fg);
+  --color-primary: var(--color-brand);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-subtle);
+  --color-secondary-foreground: var(--color-forest);
+  --color-muted: var(--color-subtle);
+  --color-muted-foreground: var(--color-fg-muted);
+  --color-border: var(--color-line);
+  --color-input: var(--color-line);
+  --color-ring: var(--color-brand);
+  --color-destructive: var(--color-bad);
+
+  --font-display: "Fraunces Variable", "Fraunces", Georgia, serif;
+  --font-sans: "Figtree Variable", "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --animate-trace-in: trace-in 260ms ease-out both;
+  --animate-pulse-ring: pulse-ring 1.4s ease-out infinite;
+  --animate-verdict-pop: verdict-pop 520ms ease-out both;
+
+  @keyframes trace-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(1);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(2.2);
+      opacity: 0;
+    }
+  }
+  @keyframes verdict-pop {
+    0% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(1.35);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-mint);
+    color: var(--color-forest);
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Small uppercase labels with tracking (only for labels, never body text). */
+@utility label-caps {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---------- Map markers (MapLibre HTML markers) ----------
+   No "position" on .report-marker: maplibre's .maplibregl-marker must stay
+   absolute (it is also the containing block for .dot/.ring). */
+.report-marker {
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.report-marker .dot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(11, 31, 23, 0.35);
+  transition:
+    background-color 600ms ease,
+    box-shadow 200ms ease;
+}
+.report-marker .dot svg {
+  width: 12px;
+  height: 12px;
+}
+.report-marker .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--color-none);
+  opacity: 0;
+}
+.report-marker[data-status="pending"] .ring {
+  animation: var(--animate-pulse-ring);
+}
+.report-marker[data-changed="true"] .dot {
+  animation: var(--animate-verdict-pop);
+}
+.report-marker[data-selected="true"] .dot {
+  box-shadow:
+    0 0 0 3px #ffffff,
+    0 0 0 5px var(--color-forest);
+}
+.report-marker .flag {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  width: 11px;
+  height: 11px;
+  border-radius: 9999px;
+  background: var(--color-forest);
+  border: 2px solid #ffffff;
+}
+
+/* MapLibre controls, light */
+.maplibregl-ctrl-attrib {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+.maplibregl-ctrl-group {
+  border: 1px solid var(--color-line);
+  box-shadow: none !important;
+}
