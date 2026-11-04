@@ -140,6 +140,43 @@
   color: var(--color-fg-muted);
 }
 
+/* Landing flow: one orchestrated reveal (connectors grow, nodes settle in order). */
+.flow-node {
+  animation: flow-node-in 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+.flow-line {
+  transform-origin: top;
+  animation: flow-grow-y 520ms ease-out both;
+  animation-delay: calc(var(--d, 0ms) + 260ms);
+}
+@media (min-width: 64rem) {
+  .flow-line {
+    transform-origin: left;
+    animation-name: flow-grow-x;
+  }
+}
+@keyframes flow-node-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes flow-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes flow-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
