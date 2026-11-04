@@ -3,6 +3,8 @@
 Reglas (deterministas, documentadas):
 - Solo se usan evidencias del mismo lugar del gazetteer que el reporte.
 - Solo los reclamos `flood` y `damage` se pueden verificar con evidencia física.
+- Si el modelo clasificó `need` pero el texto afirma hechos físicos (tools/claims.py):
+  sin_evidencia + needs_review; el tipo no se cambia en silencio.
 - NDWI: value >= NDWI_FLOOD_DELTA respalda; value < NDWI_DRY_DELTA contradice; entre ambos, neutro.
 - Foto: value (fracción de la imagen ENTERA segmentada como agua por SAM 3.1) >=
   PHOTO_WATER_MIN respalda; si no, neutro. Una foto nunca contradice (puede estar mal
@@ -29,6 +31,7 @@ import re
 from typing import Any, Callable, Literal, Optional
 
 from src.models.schemas import ClaimType, Evidence, Report, Verdict, VerdictStatus
+from src.tools.claims import physical_claims
 from src.tools.gazetteer import normalize
 
 NDWI_FLOOD_DELTA = 0.10
@@ -57,6 +60,21 @@ def classify_evidence(ev: Evidence) -> Signal:
 
 def decide_verdict(report: Report, evidence: list[Evidence]) -> Verdict:
     """Veredicto determinista a partir del reporte y la evidencia disponible."""
+    if report.claim_type == ClaimType.need:
+        claims = physical_claims(report.text)
+        if claims:
+            # El modelo dijo "solo petición" pero el texto afirma hechos físicos: no se
+            # reclasifica en silencio; queda en revisión humana.
+            return Verdict(
+                report_id=report.id,
+                status=VerdictStatus.sin_evidencia,
+                reason=(
+                    "Claim type 'need' but the text contains physical claims ("
+                    + "; ".join(f"'{c}'" for c in claims)
+                    + "): human review required."
+                ),
+                needs_review=True,
+            )
     if report.place_name is None:
         return Verdict(
             report_id=report.id,

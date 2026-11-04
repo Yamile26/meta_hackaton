@@ -44,10 +44,11 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from src.clients import meta
-from src.models.schemas import AgentEvent, AlertDraft, Evidence, Report, Verdict, Zone
+from src.models.schemas import AgentEvent, AlertDraft, ClaimType, Evidence, Report, Verdict, Zone
 from src.tools import alert as alert_tools
 from src.tools import bulletin as bulletin_tools
 from src.tools import photo_eval
+from src.tools.claims import physical_claims
 from src.tools.event_data import DEFAULT_EVENT_DIR, evidence_for_place, load_event
 from src.tools.gazetteer import load_gazetteer
 from src.tools.prioritize import prioritize
@@ -339,9 +340,19 @@ class Centinela:
         r = run.report
         self.emit(
             "vigia",
-            f"Reporte {r.id}: {r.claim_type.value} en {r.place_name or 'lugar desconocido'}.",
+            f"Reporte {r.id}: {r.claim_type.value} en {r.place_name or 'lugar desconocido'}"
+            + (" (pide ayuda)" if r.asks_for_help else "")
+            + ".",
             {"report": r.model_dump(mode="json"), "ms": _ms(t0)},
         )
+        conflict = physical_claims(r.text) if r.claim_type == ClaimType.need else []
+        if conflict:
+            self.emit(
+                "vigia",
+                f"El modelo clasificó {r.id} como 'need', pero el texto afirma hechos físicos: "
+                "no se cambia el tipo; requiere revisión humana.",
+                {"report_id": r.id, "physical_claims": conflict},
+            )
         return {
             "report_id": r.id,
             "place_name": r.place_name,
