@@ -15,6 +15,11 @@ Base: `http://localhost:8000`. JSON salvo indicación. Tipos: ver `backend/src/m
 | `POST /alerts/draft` | `{zone_id}` | `AlertDraft` (approved=false) |
 | `POST /alerts/{zone_id}/approve` | n/a | `AlertDraft` (approved=true, solo simulado) |
 
+Tipo de reporte: `Report.claim_type` refleja la afirmación FÍSICA principal (`flood`,
+`damage`) aunque el reporte también pida ayuda; `Report.asks_for_help` (bool) indica que
+pide ayuda o recursos. `need` solo si el reporte es únicamente una petición, sin ninguna
+afirmación física.
+
 Idiomas: `Report.text` y los nombres de lugares quedan en español. `Report.summary_en`
 (opcional) es un resumen de una frase en inglés. `Verdict.reason` se escribe en inglés.
 `AlertDraft.text` = texto en español para la comunidad, una línea en blanco (`\n\n`) y su

@@ -35,7 +35,8 @@ class Report(BaseModel):
     place_name: Optional[str] = None  # nombre EXACTO del gazetteer, o None
     lat: Optional[float] = None
     lon: Optional[float] = None
-    claim_type: ClaimType = ClaimType.other
+    claim_type: ClaimType = ClaimType.other  # afirmación FÍSICA principal; need solo si no hay ninguna
+    asks_for_help: bool = False  # el reporte pide ayuda o recursos (botes, agua, evacuación...)
     severity: Optional[int] = Field(default=None, ge=1, le=3)
     houses_affected: Optional[int] = Field(default=None, ge=0)
     source_audio: Optional[str] = None
