@@ -44,8 +44,16 @@ def test_template_and_draft():
     f = alert_facts(ZONE, items())
     text = template_text(f)
     es, en = text.split("\n\n")
-    assert "ALERTA GRAVE" in es and "42%" in es and "3 viviendas" in es
-    assert "SEVERE ALERT" in en and "42%" in en and "3 homes" in en
+    assert "ALERTA GRAVE" in es and "42%" in es
+    assert "SEVERE ALERT" in en and "42%" in en
+    # la cifra de casas viene del texto del reporte: va etiquetada como reportada
+    assert "3 viviendas afectadas reportadas por vecinos" in es
+    assert "3 homes reported affected by residents" in en
+    # lo calculado en código (porcentaje de área) no lleva esa etiqueta
+    assert "42% de la zona con agua" in es and "42% of the area under water" in en
+    for part in (es, en):
+        sentence = next(s for s in part.split(". ") if "42%" in s)
+        assert "report" not in sentence.split("42%")[1]
     assert "Jirón Progreso" in en  # el lugar no se traduce
     d = make_draft(f, text)
     assert d.approved is False and d.evidence_ids == ["EV-01", "EV-02"] and d.zone_id == "Z-01"
@@ -53,10 +61,49 @@ def test_template_and_draft():
 
 def test_text_is_safe_rejects_invented_numbers():
     f = alert_facts(ZONE, items())
-    assert text_is_safe("Inundación en Jirón Progreso: 42% con agua, 3 viviendas.", f)
-    assert not text_is_safe("Hay 50 viviendas afectadas.", f)
+    assert text_is_safe("Inundación en Jirón Progreso: 42% con agua, 3 viviendas reportadas.", f)
+    assert not text_is_safe("Hay 50 viviendas afectadas reportadas.", f)
     assert not text_is_safe("   ", f)
     assert not text_is_safe("a" * 600, f)
+
+
+def test_text_is_safe_requires_reported_label_for_houses():
+    f = alert_facts(ZONE, items())
+    # la cifra de casas sin etiqueta: se rechaza (se usará la plantilla)
+    assert not text_is_safe("Inundación en Jirón Progreso: 42% con agua, 3 viviendas afectadas.", f)
+    assert not text_is_safe("Flooding in Jirón Progreso: 3 homes affected.", f)
+    # "reporte(s) confirmado(s)" no cuenta como etiqueta de la cifra
+    assert not text_is_safe("1 reporte confirmado; 3 viviendas afectadas.", f)
+    assert text_is_safe("Vecinos reportan 3 viviendas afectadas (cifra reportada).", f)
+    assert text_is_safe("Flooding in Jirón Progreso: 3 homes reported affected.", f)
+    # sin cifra de casas no hace falta la etiqueta; el porcentaje calculado va sin ella
+    assert text_is_safe("ALERTA en Jirón Progreso: cerca del 42% de la zona con agua.", f)
+
+
+def test_template_without_houses_has_no_reported_label():
+    r = Report(id="R-01", text="t", place_name="Jirón Progreso", claim_type=ClaimType.flood, severity=2)
+    f = alert_facts(ZONE, [(r, Verdict(report_id="R-01", status=VerdictStatus.confirmado,
+                                       evidence_ids=["EV-01"], reason="r"))])
+    es, en = template_text(f).split("\n\n")
+    assert "reportad" not in es and "reported" not in en
+    assert text_is_safe(es, f) and text_is_safe(en, f)
+
+
+def test_template_passes_its_own_check():
+    f = alert_facts(ZONE, items())
+    es, en = template_text(f).split("\n\n")
+    assert text_is_safe(es, f) and text_is_safe(en, f)
+
+
+def test_alert_prompt_asks_for_reported_label():
+    from fakes import FakeMeta
+
+    from src.clients import meta
+
+    client = FakeMeta()
+    meta.draft_alert_text(alert_facts(ZONE, items()), client=client)
+    system = client.calls_for(meta.AlertText)[0]["messages"][0]["content"]
+    assert "viviendas afectadas reportadas" in system and "homes reported affected" in system
 
 
 @pytest.mark.parametrize(

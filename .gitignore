@@ -9,3 +9,10 @@ data/runtime/
 foto.*
 mascara.png
 .claude/settings.local.json
+*.mp3
+*.m4a
+*.mp4
+*.webm
+.pytest_cache/
+.ruff_cache/
+frontend/dist

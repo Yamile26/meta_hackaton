@@ -20,7 +20,7 @@ After a flood, whoever decides where to send help works with scattered, unverifi
 
 Centinela is an attempt to triage that stream with evidence and an audit trail, while leaving the final decision to a person.
 
-> **Status of this problem statement:** it is a hypothesis. I have not yet validated it with civil-defense practitioners. TODO: update this note if someone replied.
+> **Status of this problem statement:** it is a hypothesis. I have not yet validated this with civil-defense practitioners.
 
 ## What it does
 
@@ -56,7 +56,7 @@ The operator sees all of this in a command-center interface, with the agent trac
 **Defenses built into the design**
 - **Prompt injection:** report text and PDF text are treated as untrusted data, never as instructions. The verifier can only cite evidence IDs that exist, and invented IDs are dropped.
 - **Model explanations are checked:** the model must quote fragments of the evidence summaries. If a quote does not appear verbatim, a number in the explanation is not in any quote, or the explanation mentions something sensitive (houses, a broken dike, people, injuries, evacuation…) that no quote supports, the explanation is discarded and only the code's reason is shown. This check is keyword-based: it stops obvious inventions, not all of them.
-- **Reported is not verified:** figures that come from a report's text (for example, houses affected) are never used to decide a verdict. Area percentages come from code. Known gap: the interface and the alert template show the houses figure without labeling it as *reported* yet.
+- **Reported is not verified:** figures that come from a report's text (for example, houses affected) are never used to decide a verdict. In alert drafts they are labeled as reported ("viviendas afectadas reportadas por vecinos" / "homes reported affected by residents"); a model-written alert that cites the houses figure without that label is rejected and the template is used. Area percentages come from code and carry no such label. Known gap: the interface still shows the houses figure without the *reported* label.
 - **Human in the loop:** alerts are drafts until a person approves them.
 
 **Priority formula** (`backend/src/tools/prioritize.py`): `score = severity × confirmed reports × exposure × flooded fraction`, where severity is the highest severity (1–3) among the zone's confirmed reports, and a report counts as confirmed only if its verdict is `confirmed` and it is not flagged **Needs review**. A zone with no confirmed reports scores 0 and gets no alert draft.
@@ -111,7 +111,7 @@ Measured end-to-end latency with the real API: about **42 seconds per voice repo
 python -m venv .venv
 .venv\Scripts\Activate.ps1            # Windows PowerShell; on macOS/Linux: source .venv/bin/activate
 pip install -r backend/requirements.txt       # runtime, exact versions
-cp .env.example .env                    # then set MODEL_API_KEY (or export it in your shell)
+cp .env.example .env                    # then set MODEL_API_KEY in .env, or set it in your shell instead
 uvicorn src.api:app --app-dir backend --port 8000
 
 # Frontend (second terminal)
@@ -120,15 +120,15 @@ npm install
 npm run dev                             # http://localhost:5173
 ```
 
-**Environment variables** (backend, read from the root `.env` or from the shell)
+**Environment variables (backend).** The backend reads each variable from the shell first. If a variable is not set in the shell, it falls back to the `.env` file at the repository root, but only for `MODEL_API_KEY`, `ASR_MODEL`, `FRONTEND_ORIGIN` and `LATENCY_TUNING`; any other line in `.env` is ignored. A value set in the shell always wins over `.env`.
 
 | Variable | Purpose |
 |---|---|
-| `MODEL_API_KEY` | Meta Model API key (never commit it) |
-| `ASR_MODEL` | Voice model id (default `muse-voice-transcribe-1.0`) |
-| `FRONTEND_ORIGIN` | Allowed CORS origin (default `http://localhost:5173`) |
-| `LATENCY_TUNING` | `on` (default): Muse Spark calls use `reasoning_effort="low"` and a `max_tokens` cap, with one retry using the API defaults if a call fails because of the tuning. `off` (also `0`, `false`, `no`) restores the slower API defaults, with no retry |
-| `CENTINELA_RUNTIME_DIR` | Optional. Where runtime files are written (default `data/runtime/`, ignored by git) |
+| `MODEL_API_KEY` | Meta Model API key (never commit it). Shell or `.env` |
+| `ASR_MODEL` | Voice model id (default `muse-voice-transcribe-1.0`). Shell or `.env` |
+| `FRONTEND_ORIGIN` | Allowed CORS origin (default `http://localhost:5173`). Shell or `.env`. The server refuses to start if it is empty or contains `*` |
+| `LATENCY_TUNING` | `on` (default): Muse Spark calls use `reasoning_effort="low"` and a `max_tokens` cap, with one retry using the API defaults if a call fails because of the tuning. `off` (also `0`, `false`, `no`) restores the slower API defaults, with no retry. Shell or `.env` |
+| `CENTINELA_RUNTIME_DIR` | Optional. Where runtime files are written (default `data/runtime/`, ignored by git). **Shell only**, not read from `.env` |
 
 **Try it without an API key:** copy `frontend/.env.example` to `frontend/.env` and keep `VITE_USE_MOCKS=true` (mocks are also the default when the variable is not set). The interface runs on a simulated scenario (the map tiles still need internet). To use the real backend set `VITE_USE_MOCKS=false` and `VITE_API_BASE=http://localhost:8000`, then open `/app`.
 
@@ -145,7 +145,9 @@ python scripts/smoke_evidence.py bulletin       # real call: bulletin PDF
 python scripts/smoke_evidence.py photo photo.jpeg --place "Nuevo Horizonte" --out mask.png   # real calls
 ```
 
-Audio sent to the API is converted to mono 16-bit WAV at 24 kHz with ffmpeg.
+`nota.wav`, `photo.jpeg` and `mask.png` in these commands are example file names. They are **not in the repository**: you provide your own voice note (mono 16-bit PCM WAV at 16 or 24 kHz) and your own field photo (JPEG, PNG or WebP), and `--out mask.png` is where the script writes the mask it computes. Audio and video files (`*.wav`, `*.mp3`, `*.m4a`, `*.mp4`, `*.webm`) are ignored by git; photos and masks are not, so do not commit them by accident. `smoke_pipeline.py` and `smoke_evidence.py` read the key like the backend (shell first, then `.env`).
+
+Audio uploaded through the API is converted to mono 16-bit WAV at 24 kHz with ffmpeg.
 
 ## Security and design decisions
 
@@ -156,7 +158,9 @@ Audio sent to the API is converted to mono 16-bit WAV at 24 kHz with ffmpeg.
 | **API key stays on the server** | The browser never talks to Meta directly. |
 | **Rate limiting** | Default of 120 requests per minute per IP, and 6 per minute for expensive endpoints (audio, photo and alert drafting) to protect model credits. |
 | **Input validation** | Pydantic schemas; audio up to 10 MB and photos up to 8 MB; file type checked by content, not by extension; ids validated by pattern; errors returned as `{"error": "..."}` without stack traces. |
-| **CORS** | Only the configured frontend origin. |
+| **CORS** | Only the configured frontend origin; an empty or `*` origin is refused at startup. |
+| **Alert approval has no authentication** (demo decision) | `POST /alerts/{zone_id}/approve` needs no login and only flips the draft's `approved` flag. Nothing is sent to anyone. A real deployment would require an authenticated coordinator role. |
+| **The live trace is not authenticated** | `GET /stream` (server-sent events) is open to anyone who can reach the server, and it carries the transcriptions and report texts. **Do not use real personal data** with this demo; the voice notes in the demo are simulated reports. |
 | **No SQL database** | State is in memory; files are written under `data/runtime/` (a PDF-reading cache, uploaded photos and their masks), so SQL injection does not apply. If a database is added, queries must be parameterized. |
 | **Explicit evidence IDs** | Every claim in a verdict or alert points to `EV-xx`, so a reviewer can audit it. |
 | **Scalability (not implemented)** | In-memory state and one pipeline at a time are fine for a demo. A production version would need a job queue, object storage for media, persistent storage and a cache for model calls. |
@@ -166,7 +170,8 @@ Audio sent to the API is converted to mono 16-bit WAV at 24 kHz with ffmpeg.
 - All demo evidence is simulated; the real-satellite path is untested.
 - SAM 3.1 handled flat water surfaces poorly in my tests (it returned only small patches). Photos are therefore only supporting evidence and never confirm a report on their own. People, houses and vehicles were not detected in my test photo.
 - The sensitive-term check on model explanations is keyword-based.
-- Figures taken from a report's text (houses affected) are not yet labeled as *reported* in the interface or the alert template.
+- Figures taken from a report's text (houses affected) are labeled as *reported* in alert drafts, but not yet in the interface.
+- No authentication anywhere: the approval endpoint only changes a flag (demo decision), and the SSE trace, which includes transcriptions, is open. Do not use real personal data.
 - State is in memory and is lost on restart; one pipeline runs at a time.
 - Verification thresholds are not calibrated on real flood data.
 - Transcription is not perfect (for example, place names with accents can be misheard); keywords help but do not guarantee correctness.
@@ -176,16 +181,18 @@ Audio sent to the API is converted to mono 16-bit WAV at 24 kHz with ffmpeg.
 
 All code in this repository was written during the hackathon building period, starting on 1 November 2026. The commit history shows it. I did not reuse code from earlier projects.
 
-AI coding assistance: **Claude Code** was used to write code from my specifications. TODO: confirm this list is accurate and add any other tool you actually used. Design decisions, testing and review are mine.
+AI tools used: Claude Code (writing code from my specifications) and Claude in claude.ai (planning, review and script drafting). [AÑADE AQUÍ SOLO LAS OTRAS HERRAMIENTAS QUE USÉ, O BORRA ESTE CORCHETE] Design decisions, testing and review are mine.
 
 ## Credits and attribution
 
 - Map data © OpenStreetMap contributors, tiles © CARTO (Voyager style).
-- Fonts: Fraunces, Figtree and JetBrains Mono (SIL Open Font License), via `@fontsource`.
+- Fonts: Fraunces (display), Figtree (text) and JetBrains Mono (code), all under the SIL Open Font License, self-hosted via the npm packages `@fontsource-variable/fraunces`, `@fontsource-variable/figtree` and `@fontsource/jetbrains-mono`.
 - Logo: original mark made for this project.
 - Meta models: Muse Spark, Muse Voice Transcribe and SAM 3.1 via the Meta Model API.
-- Any photo used in the demo: TODO (add author, source and license).
+- Demo photo: [TEXTO DE LA FOTO]
 
 ## License
 
-TODO: choose a license (for example MIT) and add a `LICENSE` file.
+MIT. See [`LICENSE`](LICENSE). Copyright (c) 2026 Yamile Del Aguila.
+
+Third-party data, fonts and models keep their own licenses and terms (see Credits and attribution).

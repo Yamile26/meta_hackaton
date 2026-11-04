@@ -586,7 +586,11 @@ _ALERT_SYSTEM = (
     "breve (máximo 3 frases, menos de 400 caracteres). text_en: traducción fiel de text_es al "
     "inglés, sin agregar ni quitar información; los nombres de lugares se quedan en español. "
     "Usa SOLO los hechos dados entre <hechos>; no agregues cifras, lugares ni datos que no "
-    "estén ahí. No escribas los ids de evidencia. Incluye una recomendación de seguridad. "
+    "estén ahí. houses_affected viene del texto de los reportes de vecinos y NO está "
+    "verificado: si lo usas, escríbelo como cifra reportada ('viviendas afectadas "
+    "reportadas' / 'homes reported affected'). flooded_percent y confirmed_reports están "
+    "calculados y no llevan esa etiqueta. No escribas los ids de evidencia. Incluye una "
+    "recomendación de seguridad. "
     "Un humano revisará el texto antes de enviarlo."
 )
 

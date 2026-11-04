@@ -5,6 +5,10 @@ Los nombres de lugares se quedan en español en ambas versiones.
 
 Si el texto del modelo contiene un número que no está en los hechos, se descarta y se
 usa la plantilla determinista.
+
+Reportado no es verificado: las cifras que salen del texto de los reportes (casas
+afectadas) se etiquetan como "reportadas"/"reported". Lo calculado en código (porcentaje
+del área con agua, número de reportes confirmados) no lleva esa etiqueta.
 """
 from __future__ import annotations
 
@@ -16,6 +20,8 @@ from src.tools.prioritize import is_confirmed
 
 MAX_ALERT_CHARS = 480
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+# Etiqueta obligatoria si el texto cita la cifra de casas (viene del texto del reporte).
+_REPORTED = re.compile(r"\b(reportad[oa]s?|reported)\b", re.IGNORECASE)
 
 
 class NoEvidenceError(ValueError):
@@ -35,7 +41,7 @@ def alert_facts(zone: Zone, items: list[tuple[Report, Verdict]]) -> dict[str, An
         "confirmed_reports": len(confirmed),
         "max_severity": max(r.severity or 1 for r, _ in confirmed),
         "flooded_percent": round(zone.flooded_fraction * 100),
-        "houses_affected": sum(houses) if houses else None,
+        "houses_affected": sum(houses) if houses else None,  # REPORTADO por vecinos, no verificado
         "evidence_ids": evidence_ids,
     }
 
@@ -57,7 +63,7 @@ def template_es(facts: dict[str, Any]) -> str:
         f"cerca del {facts['flooded_percent']}% de la zona con agua.",
     ]
     if facts["houses_affected"]:
-        parts.append(f"Al menos {facts['houses_affected']} viviendas afectadas.")
+        parts.append(f"Al menos {facts['houses_affected']} viviendas afectadas reportadas por vecinos.")
     parts.append("Aléjese de calles inundadas, desconecte la electricidad y siga a Defensa Civil.")
     return " ".join(parts)
 
@@ -70,7 +76,7 @@ def template_en(facts: dict[str, Any]) -> str:
         f"about {facts['flooded_percent']}% of the area under water.",
     ]
     if facts["houses_affected"]:
-        parts.append(f"At least {facts['houses_affected']} homes affected.")
+        parts.append(f"At least {facts['houses_affected']} homes reported affected by residents.")
     parts.append("Stay away from flooded streets, switch off electricity and follow Civil Defense.")
     return " ".join(parts)
 
@@ -90,11 +96,17 @@ def allowed_numbers(facts: dict[str, Any]) -> set[str]:
 
 
 def text_is_safe(text: str, facts: dict[str, Any]) -> bool:
-    """Acepta el texto del modelo solo si no está vacío, cabe y no inventa números."""
+    """Acepta el texto del modelo solo si no está vacío, cabe, no inventa números y, si
+    cita la cifra de casas (dato reportado), la etiqueta como reportada."""
     if not text.strip() or len(text) > MAX_ALERT_CHARS:
         return False
     allowed = allowed_numbers(facts)
-    return all(n in allowed for n in _NUMBER.findall(text))
+    numbers = _NUMBER.findall(text)
+    if not all(n in allowed for n in numbers):
+        return False
+    houses = facts.get("houses_affected")
+    # la cifra de casas viene del texto del reporte: si aparece, debe ir como reportada
+    return houses is None or str(houses) not in numbers or bool(_REPORTED.search(text))
 
 
 def make_draft(facts: dict[str, Any], text: str) -> AlertDraft:
