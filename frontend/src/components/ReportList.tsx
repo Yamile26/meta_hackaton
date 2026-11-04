@@ -2,6 +2,7 @@ import { MapPinOff } from "lucide-react";
 import { useMemo } from "react";
 import { EmptyState, ErrorState } from "@/components/StateViews";
 import { ReviewBadge, StatusChip } from "@/components/StatusChip";
+import { STATUS_META } from "@/lib/status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLAIM_LABEL, S } from "@/lib/strings";
 import type { ReportItem } from "@/lib/types";
@@ -48,11 +49,17 @@ export function ReportList({ reports, selectedId, onSelect, onRetry }: Props) {
                 onClick={() => onSelect(report.id)}
                 aria-pressed={selected}
                 className={cn(
-                  "relative w-full px-6 py-4 text-left transition-colors",
-                  selected ? "bg-mint/70" : "hover:bg-subtle/80",
+                  "relative w-full py-4 pr-6 pl-7 text-left transition-colors duration-150 focus-visible:outline-offset-[-2px]",
+                  selected ? "bg-mint/70" : "hover:bg-subtle/80 active:bg-subtle",
                 )}
               >
-                {selected && <span className="absolute inset-y-0 left-0 w-1 bg-brand" aria-hidden />}
+                {/* Verdict stripe: scan the list by color (the chip carries icon + label too). */}
+                <span
+                  className={cn("absolute inset-y-3 left-3 w-[3px] rounded-full transition-colors duration-500", !verdict && "animate-pulse")}
+                  style={{ backgroundColor: STATUS_META[verdict?.status ?? "pending"].color }}
+                  aria-hidden
+                />
+                {selected && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-brand/60" aria-hidden />}
                 <div className="flex items-baseline gap-2">
                   <span className="truncate font-semibold text-fg">
                     {report.place_name ?? (
