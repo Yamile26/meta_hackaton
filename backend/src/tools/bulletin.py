@@ -27,7 +27,6 @@ log = logging.getLogger(__name__)
 
 MAX_PDF_BYTES = 20 * 1024 * 1024  # la API admite 50 MB en línea; el boletín es pequeño
 FREE_TEXT_MAX = 80
-BULLETIN_MAX_TOKENS = 2000
 
 Hazard = Literal["inundacion", "desborde_de_rio", "lluvia_intensa", "deslizamiento", "otro"]
 Intensity = Literal["baja", "moderada", "alta", "muy_alta"]
@@ -168,8 +167,10 @@ def extract_bulletin(
     client: Any,
 ) -> BulletinExtraction:
     data_url = "data:application/pdf;base64," + base64.b64encode(pdf_bytes).decode("ascii")
-    try:
-        resp = client.beta.chat.completions.parse(
+    return meta.parse_structured(
+            client,
+            kind="bulletin",
+            label="lectura del boletín",
             model=meta.TEXT_MODEL,
             messages=[
                 {"role": "system", "content": _system_prompt(places)},
@@ -183,15 +184,7 @@ def extract_bulletin(
             ],
             response_format=BulletinExtraction,
             temperature=meta.TEMPERATURE,
-            reasoning_effort=meta.REASONING_EFFORT,
-            max_tokens=BULLETIN_MAX_TOKENS,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise meta.MetaAPIError(f"Fallo leyendo el boletín ({type(exc).__name__})") from exc
-    parsed = resp.choices[0].message.parsed
-    if parsed is None:
-        raise meta.MetaAPIError("El modelo no devolvió datos del boletín")
-    return parsed
 
 
 def load_bulletin(

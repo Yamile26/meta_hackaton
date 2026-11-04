@@ -55,7 +55,6 @@ DRAW_ORDER = ("water", "house", "vehicle", "person")  # lo último queda encima
 WATER_PRESENT_MIN = 0.01
 ELEMENTS_MAX = 6
 ELEMENT_MAX_CHARS = 40
-VISION_MAX_TOKENS = 1200
 
 WaterLevel = Literal["sin_agua", "tobillo", "rodilla", "cintura", "pecho_o_mas", "incierto"]
 
@@ -323,8 +322,10 @@ _VISION_SYSTEM = (
 
 
 def describe_photo(url: str, *, client: Any) -> PhotoDescription:
-    try:
-        resp = client.beta.chat.completions.parse(
+    return meta.parse_structured(
+            client,
+            kind="vision",
+            label="visión",
             model=meta.TEXT_MODEL,
             messages=[
                 {"role": "system", "content": _VISION_SYSTEM},
@@ -338,15 +339,7 @@ def describe_photo(url: str, *, client: Any) -> PhotoDescription:
             ],
             response_format=PhotoDescription,
             temperature=meta.TEMPERATURE,
-            reasoning_effort=meta.REASONING_EFFORT,
-            max_tokens=VISION_MAX_TOKENS,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise meta.MetaAPIError(f"Fallo en visión ({type(exc).__name__})") from exc
-    parsed = resp.choices[0].message.parsed
-    if parsed is None:
-        raise meta.MetaAPIError("El modelo no devolvió una descripción")
-    return parsed
 
 
 def segment(url: str, concept: str, *, client: Any) -> list[Instance]:
@@ -367,11 +360,15 @@ def segment(url: str, concept: str, *, client: Any) -> list[Instance]:
         )
         text = resp.output_text or ""
     except Exception as exc:  # noqa: BLE001
-        raise meta.MetaAPIError(f"Fallo en SAM ({type(exc).__name__})") from exc
+        d = {"label": f"SAM '{concept}'", **meta.diagnose(exc)}
+        meta.log.warning("Meta SAM '%s' falló: %s", concept, d)
+        raise meta.MetaAPIError(f"Fallo en SAM ({type(exc).__name__})", d) from exc
     try:
         return parse_sam_output(text)
     except Exception as exc:  # noqa: BLE001
-        raise meta.MetaAPIError("Salida de SAM ilegible") from exc
+        d = {"label": f"SAM '{concept}'", **meta.diagnose(exc), "output_chars": len(text)}
+        meta.log.warning("Salida de SAM '%s' ilegible: %s", concept, d)
+        raise meta.MetaAPIError("Salida de SAM ilegible", d) from exc
 
 
 def _timed(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, Optional[Exception], int]:

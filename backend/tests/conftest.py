@@ -12,4 +12,8 @@ def _runtime_dir(tmp_path, monkeypatch):
     """Caché del boletín, fotos y máscaras en un directorio temporal por test."""
     runtime = tmp_path / "runtime"
     monkeypatch.setenv("CENTINELA_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("LATENCY_TUNING", "on")  # independiente del .env local
+    from src.clients import meta
+
+    meta.reset_tuning_state()
     return runtime

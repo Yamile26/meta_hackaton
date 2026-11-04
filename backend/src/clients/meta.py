@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 import os
 import re
 import wave
@@ -29,21 +30,46 @@ TEXT_MODEL = "muse-spark-1.3"
 ASR_URL = f"{BASE_URL}/asr/transcribe"
 ASR_MODEL_DEFAULT = "muse-voice-transcribe-1.0"
 TEMPERATURE = 0
-# Latencia: esfuerzo de razonamiento bajo en extracción, verificación, alerta, boletín,
-# visión y orquestación (https://dev.meta.ai/docs/reasoning). `max_tokens` limita
-# razonamiento + respuesta juntos; si se agota, el SDK falla y se usa el respaldo.
+
+# Ajuste de latencia (LATENCY_TUNING=on, por defecto): reasoning_effort="low" y un tope de
+# max_tokens. Según https://dev.meta.ai/docs/reasoning, `max_tokens` limita razonamiento +
+# respuesta visible JUNTOS: si el tope es bajo, el razonamiento lo agota y el JSON queda
+# truncado (finish_reason="length"). Con 1200 tokens la extracción fallaba así, por eso los
+# topes tienen ahora un margen amplio (el tope no añade latencia: solo corta).
+# Si la llamada ajustada falla por una causa que el ajuste puede provocar (longitud, 400/422,
+# JSON inválido), se reintenta UNA vez con los parámetros por defecto.
+# LATENCY_TUNING=off: sin reasoning_effort ni max_tokens (como antes del ajuste) y sin reintento.
 REASONING_EFFORT = "low"
-MAX_TOKENS = {"extract": 1200, "verify": 1200, "alert": 1200}
+MAX_TOKENS = {
+    "extract": 8192,
+    "verify": 8192,
+    "alert": 8192,
+    "bulletin": 8192,
+    "vision": 8192,
+    "orchestrator": 4096,
+}
 
 WAV_MAX_BYTES = 32 * 1024 * 1024
 WAV_MAX_SECONDS = 10 * 60
 WAV_RATES = (16000, 24000)
 
+log = logging.getLogger("centinela.meta")
 _report_counter = itertools.count(1)
 
 
 class MetaAPIError(RuntimeError):
-    """Error al llamar a la API de Meta. El mensaje nunca incluye la clave."""
+    """Error al llamar a la API de Meta. El mensaje nunca incluye la clave.
+
+    `diagnostics` conserva la causa (tipo de excepción, HTTP, finish_reason, tokens) para
+    el log del servidor y los scripts de humo. NO se devuelve en las respuestas de la API.
+    """
+
+    def __init__(self, message: str, diagnostics: Optional[dict[str, Any]] = None) -> None:
+        super().__init__(message)
+        self.diagnostics: dict[str, Any] = diagnostics or {}
+
+    def detail(self) -> str:
+        return f"{self} | {json.dumps(self.diagnostics, ensure_ascii=False, default=str)}"
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +101,157 @@ def get_client() -> Any:
     from openai import OpenAI  # import diferido: los tests no lo necesitan
 
     return OpenAI(base_url=BASE_URL, api_key=_api_key())
+
+
+def latency_tuning() -> bool:
+    """LATENCY_TUNING (on por defecto). off/0/false/no lo desactiva."""
+    _load_dotenv()
+    return os.environ.get("LATENCY_TUNING", "on").strip().lower() not in {"off", "0", "false", "no"}
+
+
+# Tipos de llamada en los que la API rechazó los parámetros de ajuste (HTTP 400/422):
+# no se vuelven a enviar en este proceso, para no pagar dos peticiones en cada llamada.
+_TUNING_REJECTED: set[str] = set()
+
+
+def reset_tuning_state() -> None:
+    _TUNING_REJECTED.clear()
+
+
+def tuning_kwargs(kind: str) -> dict[str, Any]:
+    """Parámetros de latencia para un tipo de llamada; {} con LATENCY_TUNING=off."""
+    if not latency_tuning() or kind in _TUNING_REJECTED:
+        return {}
+    return {"reasoning_effort": REASONING_EFFORT, "max_tokens": MAX_TOKENS[kind]}
+
+
+# ---------------------------------------------------------------------------
+# Diagnóstico de errores (sin claves)
+# ---------------------------------------------------------------------------
+
+_BEARER = re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]+")
+MESSAGE_MAX_CHARS = 300
+
+
+def redact(text: str) -> str:
+    """Quita la clave (si aparece) y cualquier cabecera Bearer de un texto."""
+    out = _BEARER.sub("Bearer ***", text)
+    key = os.environ.get("MODEL_API_KEY", "").strip()
+    if len(key) >= 8:
+        out = out.replace(key, "***")
+    return out
+
+
+def _usage(obj: Any) -> dict[str, Any]:
+    usage = getattr(obj, "usage", None)
+    if usage is None:
+        return {}
+    details = getattr(usage, "completion_tokens_details", None)
+    return {
+        "prompt_tokens": getattr(usage, "prompt_tokens", None),
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+        "reasoning_tokens": getattr(details, "reasoning_tokens", None) if details else None,
+    }
+
+
+def _finish_reason(completion: Any) -> Optional[str]:
+    try:
+        return completion.choices[0].finish_reason
+    except (AttributeError, IndexError, TypeError):
+        return None
+
+
+class EmptyParseError(RuntimeError):
+    """La respuesta llegó pero sin objeto parseado (rechazo, JSON vacío...)."""
+
+    def __init__(self, completion: Any) -> None:
+        super().__init__("respuesta sin objeto parseado")
+        self.completion = completion
+
+
+def diagnose(exc: BaseException) -> dict[str, Any]:
+    """Causa de un fallo, apta para logs: nunca incluye la clave."""
+    d: dict[str, Any] = {"exception": type(exc).__name__}
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        d["http_status"] = status
+        d["request_id"] = getattr(exc, "request_id", None)
+        body = getattr(exc, "body", None)
+        err = body.get("error", body) if isinstance(body, dict) else None
+        if isinstance(err, dict):
+            for k in ("code", "param", "type"):
+                if err.get(k) is not None:
+                    d[k] = err[k]
+    completion = getattr(exc, "completion", None)
+    if completion is not None:
+        d["finish_reason"] = _finish_reason(completion)
+        d.update(_usage(completion))
+        refusal = getattr(getattr(completion.choices[0], "message", None), "refusal", None) if completion.choices else None
+        if refusal:
+            d["refusal"] = redact(str(refusal))[:MESSAGE_MAX_CHARS]
+    d["message"] = redact(str(getattr(exc, "message", None) or exc))[:MESSAGE_MAX_CHARS]
+    return d
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Fallos que el ajuste de latencia puede provocar: longitud, parámetro rechazado, JSON."""
+    from pydantic import ValidationError
+
+    if isinstance(exc, (EmptyParseError, ValidationError)):
+        return True
+    if type(exc).__name__ in {"LengthFinishReasonError", "BadRequestError", "UnprocessableEntityError"}:
+        return True
+    return getattr(exc, "status_code", None) in (400, 422)
+
+
+def call_model(fn: Any, *, kind: str, label: str, check_parsed: bool = True, **kwargs: Any) -> Any:
+    """Llama a `fn(**kwargs)` con el ajuste de latencia; un único reintento sin él.
+
+    Registra cada fallo en el log con su diagnóstico. Si todo falla, lanza MetaAPIError
+    con `diagnostics = {"label", "attempts": [...]}`.
+    """
+    tuned = tuning_kwargs(kind)
+    plans = [("tuned", tuned), ("default", {})] if tuned else [("default", {})]
+    attempts: list[dict[str, Any]] = []
+    last_exc: Optional[BaseException] = None
+    for i, (params, extra) in enumerate(plans):
+        try:
+            resp = fn(**kwargs, **extra)
+            if check_parsed:
+                parsed = resp.choices[0].message.parsed
+                if parsed is None:
+                    raise EmptyParseError(resp)
+            if attempts:
+                log.warning("Meta %s: el reintento con parámetros por defecto funcionó", label)
+            return resp
+        except Exception as exc:  # noqa: BLE001 - se diagnostica y se re-lanza abajo
+            d = {"params": params, **({"tuning": extra} if extra else {}), **diagnose(exc)}
+            attempts.append(d)
+            last_exc = exc
+            log.warning("Meta %s falló (intento %d, %s): %s", label, i + 1, params, json.dumps(d, ensure_ascii=False, default=str))
+            if params == "tuned" and getattr(exc, "status_code", None) in (400, 422):
+                _TUNING_REJECTED.add(kind)
+                log.warning("Meta %s: la API rechazó el ajuste de latencia; se desactiva para '%s'", label, kind)
+            if not _is_retryable(exc):
+                break
+    raise MetaAPIError(f"Fallo en {label}", {"label": label, "attempts": attempts}) from last_exc
+
+
+def parse_structured(client: Any, *, kind: str, label: str, **kwargs: Any) -> Any:
+    """Structured output (beta.chat.completions.parse) con diagnóstico y reintento."""
+    resp = call_model(client.beta.chat.completions.parse, kind=kind, label=label, **kwargs)
+    return resp.choices[0].message.parsed
+
+
+def find_meta_error(exc: Optional[BaseException]) -> Optional[MetaAPIError]:
+    """Primer MetaAPIError en la cadena de causas (para scripts y logs)."""
+    seen = 0
+    while exc is not None and seen < 10:
+        if isinstance(exc, MetaAPIError):
+            return exc
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -180,23 +357,18 @@ def extract_report(
         raise ValueError("El reporte está vacío")
     places = places if places is not None else load_gazetteer()
     client = client or get_client()
-    try:
-        resp = client.beta.chat.completions.parse(
-            model=TEXT_MODEL,
-            messages=[
-                {"role": "system", "content": _extract_system_prompt(places)},
-                {"role": "user", "content": f"<reporte>\n{text}\n</reporte>"},
-            ],
-            response_format=ReportExtraction,
-            temperature=TEMPERATURE,
-            reasoning_effort=REASONING_EFFORT,
-            max_tokens=MAX_TOKENS["extract"],
-        )
-    except Exception as exc:  # noqa: BLE001 - se re-lanza sin detalles internos
-        raise MetaAPIError(f"Fallo en extracción ({type(exc).__name__})") from exc
-    parsed = resp.choices[0].message.parsed
-    if parsed is None:
-        raise MetaAPIError("El modelo no devolvió una extracción válida")
+    parsed = parse_structured(
+        client,
+        kind="extract",
+        label="extracción",
+        model=TEXT_MODEL,
+        messages=[
+            {"role": "system", "content": _extract_system_prompt(places)},
+            {"role": "user", "content": f"<reporte>\n{text}\n</reporte>"},
+        ],
+        response_format=ReportExtraction,
+        temperature=TEMPERATURE,
+    )
     return build_report(text, parsed, places, report_id=report_id, source_audio=source_audio)
 
 
@@ -258,12 +430,21 @@ def transcribe(
                 timeout=timeout,
             )
     except requests.RequestException as exc:
-        raise MetaAPIError(f"Fallo de red en transcripción ({type(exc).__name__})") from exc
+        d = {"label": "transcripción", **diagnose(exc)}
+        log.warning("Meta transcripción falló: %s", json.dumps(d, ensure_ascii=False))
+        raise MetaAPIError(f"Fallo de red en transcripción ({type(exc).__name__})", d) from exc
     if r.status_code != 200:
-        raise MetaAPIError(f"La transcripción falló (HTTP {r.status_code})")
+        d = {
+            "label": "transcripción",
+            "http_status": r.status_code,
+            "request_id": r.headers.get("x-request-id"),
+            "message": redact(r.text or "")[:MESSAGE_MAX_CHARS],
+        }
+        log.warning("Meta transcripción falló: %s", json.dumps(d, ensure_ascii=False))
+        raise MetaAPIError(f"La transcripción falló (HTTP {r.status_code})", d)
     transcript = r.json().get("transcript")
     if not isinstance(transcript, str):
-        raise MetaAPIError("Respuesta de transcripción sin 'transcript'")
+        raise MetaAPIError("Respuesta de transcripción sin 'transcript'", {"label": "transcripción"})
     return transcript.strip()
 
 
@@ -324,20 +505,15 @@ def verify_with_llm(report: Report, evidence: list[Evidence], *, client: Any = N
         f"<reporte>\n{json.dumps(report_data, ensure_ascii=False)}\n</reporte>\n"
         f"<evidencias>\n{json.dumps(evidence_data, ensure_ascii=False)}\n</evidencias>"
     )
-    try:
-        resp = client.beta.chat.completions.parse(
-            model=TEXT_MODEL,
-            messages=[{"role": "system", "content": _VERIFY_SYSTEM}, {"role": "user", "content": user}],
-            response_format=LLMOpinion,
-            temperature=TEMPERATURE,
-            reasoning_effort=REASONING_EFFORT,
-            max_tokens=MAX_TOKENS["verify"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise MetaAPIError(f"Fallo en verificación ({type(exc).__name__})") from exc
-    parsed = resp.choices[0].message.parsed
-    if parsed is None:
-        raise MetaAPIError("El modelo no devolvió una opinión válida")
+    parsed = parse_structured(
+        client,
+        kind="verify",
+        label="verificación",
+        model=TEXT_MODEL,
+        messages=[{"role": "system", "content": _VERIFY_SYSTEM}, {"role": "user", "content": user}],
+        response_format=LLMOpinion,
+        temperature=TEMPERATURE,
+    )
     return sanitize_opinion(parsed, evidence)
 
 
@@ -364,21 +540,15 @@ def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> AlertText:
     """Pide a Spark la redacción (es + en). El llamador valida ambos textos (ver tools/alert.py)."""
     client = client or get_client()
     public = {k: v for k, v in facts.items() if k not in ("evidence_ids", "zone_id")}
-    try:
-        resp = client.beta.chat.completions.parse(
-            model=TEXT_MODEL,
-            messages=[
-                {"role": "system", "content": _ALERT_SYSTEM},
-                {"role": "user", "content": f"<hechos>\n{json.dumps(public, ensure_ascii=False)}\n</hechos>"},
-            ],
-            response_format=AlertText,
-            temperature=TEMPERATURE,
-            reasoning_effort=REASONING_EFFORT,
-            max_tokens=MAX_TOKENS["alert"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise MetaAPIError(f"Fallo en redacción de alerta ({type(exc).__name__})") from exc
-    parsed = resp.choices[0].message.parsed
-    if parsed is None:
-        raise MetaAPIError("El modelo no devolvió un texto de alerta")
-    return parsed
+    return parse_structured(
+        client,
+        kind="alert",
+        label="redacción de alerta",
+        model=TEXT_MODEL,
+        messages=[
+            {"role": "system", "content": _ALERT_SYSTEM},
+            {"role": "user", "content": f"<hechos>\n{json.dumps(public, ensure_ascii=False)}\n</hechos>"},
+        ],
+        response_format=AlertText,
+        temperature=TEMPERATURE,
+    )

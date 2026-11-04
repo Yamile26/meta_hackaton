@@ -56,7 +56,6 @@ from src.tools.verify import decide_verdict, explanation_is_grounded, reconcile,
 log = logging.getLogger(__name__)
 
 MAX_TURNS = 8
-ORCHESTRATOR_MAX_TOKENS = 600
 AUDIO_STEPS = (
     "transcribe_audio",
     "extract_report",
@@ -313,6 +312,7 @@ class Centinela:
         try:
             run.text = self._transcriber(run.audio_path, places=self.places)
         except (meta.MetaAPIError, ValueError) as exc:
+            log.error("Transcripción falló: %s", exc.detail() if isinstance(exc, meta.MetaAPIError) else type(exc).__name__)
             raise PipelineError("No se pudo transcribir el audio") from exc
         if not run.text:
             raise PipelineError("La transcripción está vacía")
@@ -334,6 +334,7 @@ class Centinela:
                 client=self.client,
             )
         except meta.MetaAPIError as exc:
+            log.error("extract_report falló: %s", exc.detail())
             raise PipelineError("No se pudo estructurar el reporte") from exc
         r = run.report
         self.emit(
@@ -394,6 +395,7 @@ class Centinela:
         self._bulletin_future = None
         waited = _ms(t0)
         if err is not None:
+            log.error("Lectura del boletín falló: %s", getattr(err, "detail", lambda: repr(err))())
             self._bulletin_failed = sha
             self.emit("vigia", "No se pudo leer el boletín; se mantiene el boletín simulado.", {"ms": call_ms})
             return {"skipped": "fallo leyendo el boletín"}
@@ -448,6 +450,7 @@ class Centinela:
                 source_path=source,
             )
         except meta.MetaAPIError as exc:
+            log.error("Análisis de foto falló: %s", exc.detail())
             with self._lock:
                 self.evidence.pop(ev_id, None)
             raise PipelineError("No se pudo analizar la foto") from exc
@@ -521,6 +524,7 @@ class Centinela:
             run.alert_prefetch = self._prefetch_alert(run.report, code)
             opinion, err, ms = _timed_call(meta.verify_with_llm, run.report, evidence, client=self.client)
             if err is not None:
+                log.error("Opinión del verificador falló; needs_review: %s", getattr(err, "detail", lambda: repr(err))())
                 v = reconcile(code, None)
             else:
                 grounded = explanation_is_grounded(opinion.reason, opinion.claims, evidence)
@@ -598,6 +602,7 @@ class Centinela:
                     self.emit("estratega", "Los hechos cambiaron tras la opinión del modelo: se descarta el borrador anticipado.")
                 candidate, err, ms = _timed_call(meta.draft_alert_text, facts, client=self.client)
             if err is not None:
+                log.error("Redacción de alerta falló: %s", getattr(err, "detail", lambda: repr(err))())
                 self.emit("estratega", "Modelo no disponible; se usa la plantilla de alerta.")
             elif alert_tools.text_is_safe(candidate.text_es, facts) and alert_tools.text_is_safe(
                 candidate.text_en, facts
@@ -685,14 +690,16 @@ class Centinela:
             if not run.pending:
                 return
             t0 = time.perf_counter()
-            resp = self.client.chat.completions.create(
+            resp = meta.call_model(
+                self.client.chat.completions.create,
+                kind="orchestrator",
+                label="orquestación",
+                check_parsed=False,
                 model=meta.TEXT_MODEL,
                 messages=messages,
                 tools=tools,
                 temperature=0,
                 parallel_tool_calls=False,
-                reasoning_effort=meta.REASONING_EFFORT,
-                max_tokens=ORCHESTRATOR_MAX_TOKENS,
             )
             turn_ms = _ms(t0)
             run.steps_ms["orchestrator_turns"] = run.steps_ms.get("orchestrator_turns", 0) + turn_ms
@@ -760,7 +767,10 @@ class Centinela:
                 except PipelineError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - el código termina el trabajo
-                    log.warning("Orquestación con el modelo falló: %s", type(exc).__name__)
+                    log.warning(
+                        "Orquestación con el modelo falló: %s",
+                        exc.detail() if isinstance(exc, meta.MetaAPIError) else type(exc).__name__,
+                    )
                     self.emit("orquestador", "El modelo orquestador no respondió; continúa el código.")
             for step in run.pending:
                 if self.use_llm:

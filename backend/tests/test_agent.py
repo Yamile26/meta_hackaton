@@ -308,7 +308,7 @@ def test_spark_calls_use_low_reasoning_and_bounded_tokens():
     assert calls
     for kw in calls:
         assert kw["reasoning_effort"] == "low"
-        assert 0 < kw["max_tokens"] <= 2000
+        assert 4096 <= kw["max_tokens"] <= 8192  # margen para razonamiento + JSON
 
 
 def test_alert_drafting_runs_in_parallel_with_verifier_opinion():

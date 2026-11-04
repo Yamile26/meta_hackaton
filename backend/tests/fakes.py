@@ -56,6 +56,8 @@ class FakeMeta:
         fail_orchestrator: bool = False,
         fail_bulletin: bool = False,
         parallel_probe: bool = False,
+        parse_errors: Optional[dict[type, list[BaseException]]] = None,
+        create_errors: Optional[list[BaseException]] = None,
     ) -> None:
         self.turns = list(turns or [])
         self.extraction = extraction or ReportExtraction(
@@ -94,6 +96,9 @@ class FakeMeta:
         self.fail_bulletin = fail_bulletin
         # Sondas de paralelismo: cada llamada espera a que las otras hayan empezado.
         self.parallel_probe = parallel_probe
+        # Errores guionizados: se lanzan en orden, uno por llamada, antes de responder.
+        self.parse_errors = {k: list(v) for k, v in (parse_errors or {}).items()}
+        self.create_errors = list(create_errors or [])
         self.alert_started = threading.Event()
         self.opinion_saw_alert: Optional[bool] = None
         self.photo_barrier = threading.Barrier(5, timeout=3)
@@ -111,6 +116,8 @@ class FakeMeta:
 
     def _create(self, **kw: Any) -> Any:
         self.create_calls.append(kw)
+        if self.create_errors:
+            raise self.create_errors.pop(0)
         if self.fail_orchestrator:
             raise RuntimeError("API caída")
         calls = self.turns.pop(0) if self.turns else []
@@ -128,6 +135,9 @@ class FakeMeta:
         with self._lock:
             self.parse_calls.append(kw)
         fmt = kw["response_format"]
+        errs = self.parse_errors.get(fmt)
+        if errs:
+            raise errs.pop(0)
         if fmt is AlertText:
             self.alert_started.set()
         if fmt is LLMOpinion and self.parallel_probe:
@@ -160,3 +170,47 @@ def fake_transcriber(text: str = "En el Jirón Progreso el agua entra a tres cas
         return text
 
     return _t
+
+
+# --- errores reales del SDK de OpenAI, para simular fallos de la API ------------------
+
+def length_error(completion_tokens: int = 8192, reasoning_tokens: int = 8100) -> BaseException:
+    """finish_reason=length: el razonamiento agotó max_tokens y el JSON quedó truncado."""
+    import openai
+    from openai.types.chat import ChatCompletion
+
+    completion = ChatCompletion.model_validate(
+        {
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "muse-spark-1.3",
+            "choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant", "content": '{"place'}}],
+            "usage": {
+                "prompt_tokens": 412,
+                "completion_tokens": completion_tokens,
+                "total_tokens": 412 + completion_tokens,
+                "completion_tokens_details": {"reasoning_tokens": reasoning_tokens},
+            },
+        }
+    )
+    return openai.LengthFinishReasonError(completion=completion)
+
+
+def status_error(status: int = 400, message: str = "unsupported parameter: reasoning_effort",
+                 param: Optional[str] = "reasoning_effort") -> BaseException:
+    """Error HTTP del SDK (400 = parámetro rechazado, 401 = clave, ...)."""
+    import httpx2
+    import openai
+
+    cls = {400: openai.BadRequestError, 401: openai.AuthenticationError, 422: openai.UnprocessableEntityError,
+           429: openai.RateLimitError, 500: openai.InternalServerError}.get(status, openai.APIStatusError)
+    response = httpx2.Response(
+        status,
+        request=httpx2.Request("POST", "https://api.meta.ai/v1/chat/completions"),
+        headers={"x-request-id": "req_test_123"},
+    )
+    body = {"error": {"message": message, "param": param, "code": "invalid_parameter"}}
+    if cls is openai.APIStatusError:
+        return cls(f"Error code: {status} - {message}", response=response, body=body)
+    return cls(f"Error code: {status} - {message}", response=response, body=body)

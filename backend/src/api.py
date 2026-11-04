@@ -31,6 +31,9 @@ from src.tools import photo_eval
 from src.tools.audio import ALLOWED_FORMATS, AudioError, convert_to_wav, sniff_format
 
 log = logging.getLogger("centinela.api")
+# Log del servidor. Sin handler, los diagnósticos de Meta (sin claves) no saldrían por consola.
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 CHUNK = 1024 * 1024
