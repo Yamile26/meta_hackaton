@@ -5,19 +5,28 @@
 (b) SAM 3.1 segmenta, un concepto por petición: agua, personas, casas y vehículos.
     El código decodifica las máscaras (meta-sam-parser), cuenta instancias y calcula la
     fracción de agua. Esos números son los de la Evidence.
-Evidence.value = fracción de la imagen segmentada como agua (0-1), calculada en código.
-Si Spark y SAM se contradicen sobre si hay agua, value = None (la foto no cuenta como
-respaldo) y el resumen lo explica.
 
-Coste por foto: 1 llamada a Spark + 4 a SAM 3.1.
+Geometría de SAM 3.1 (comprobado con una respuesta real): cada máscara cubre SOLO la caja
+de su instancia. Con caja x1=497,y1=266,x2=702,y2=310 sobre 703x471 la máscara mide
+206x45 (= x2-x1+1, y2-y1+1). Por eso cada máscara se pega en un lienzo del tamaño
+completo de la imagen (w x h del token de caja) en (x1, y1), y la fracción de agua es
+píxeles de la unión / (w * h).
+
+Evidence.value = fracción de la imagen entera segmentada como agua (0-1).
+Si Spark y SAM se contradicen sobre si hay agua, value = None (la foto no cuenta como
+respaldo) y el resumen lo explica. El umbral de respaldo está en tools/verify.py.
+
+Coste por foto: 1 llamada a Spark + 4 a SAM 3.1, las 5 en paralelo.
 """
 from __future__ import annotations
 
 import base64
+import re
 import struct
+import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 import numpy as np
@@ -32,7 +41,7 @@ IMAGE_MIME = {"jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
 # concepto SAM (frase nominal corta, uno por petición) -> clave interna
 CONCEPTS: dict[str, str] = {"water": "water", "person": "person", "house": "house", "vehicle": "vehicle"}
-# colores RGBA de la máscara (documentados en docs/contract.md)
+# colores RGBA de la máscara
 COLORS: dict[str, tuple[int, int, int, int]] = {
     "water": (56, 152, 236, 140),
     "house": (163, 163, 163, 150),
@@ -40,9 +49,13 @@ COLORS: dict[str, tuple[int, int, int, int]] = {
     "person": (242, 107, 29, 190),
 }
 DRAW_ORDER = ("water", "house", "vehicle", "person")  # lo último queda encima
-WATER_PRESENT_MIN = 0.05  # por debajo, SAM "no ve agua"
+# SAM "ve agua" si la unión cubre al menos el 1 % de la imagen. Medido sobre la imagen
+# entera, el agua de una calle inundada suele ocupar pocos puntos porcentuales
+# (3,5 % en la foto de prueba), así que el umbral anterior (5 %) daba falsas discrepancias.
+WATER_PRESENT_MIN = 0.01
 ELEMENTS_MAX = 6
 ELEMENT_MAX_CHARS = 40
+VISION_MAX_TOKENS = 1200
 
 WaterLevel = Literal["sin_agua", "tobillo", "rodilla", "cintura", "pecho_o_mas", "incierto"]
 
@@ -54,14 +67,26 @@ class PhotoDescription(BaseModel):
 
 
 @dataclass
+class Instance:
+    """Una instancia de SAM: máscara local a su caja y su posición en la imagen."""
+
+    mask: np.ndarray  # bool, alto x ancho de la caja
+    left: int  # x1
+    top: int  # y1
+    image_w: int
+    image_h: int
+
+
+@dataclass
 class Segmentation:
     concept: str
-    masks: list[np.ndarray] = field(default_factory=list)  # bool HxW, una por instancia
+    instances: list[Instance] = field(default_factory=list)
     error: bool = False
+    ms: Optional[int] = None
 
     @property
     def count(self) -> Optional[int]:
-        return None if self.error else len(self.masks)
+        return None if self.error else len(self.instances)
 
 
 @dataclass
@@ -72,6 +97,8 @@ class PhotoResult:
     description: Optional[PhotoDescription]
     discrepancy: bool
     mask_png: Optional[bytes]
+    image_size: Optional[tuple[int, int]] = None  # (w, h)
+    ms: dict[str, Optional[int]] = field(default_factory=dict)
 
 
 class PhotoError(ValueError):
@@ -108,29 +135,23 @@ def data_url(data: bytes, fmt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SAM: parseo y cálculo (deterministas)
+# SAM: parseo y geometría (deterministas)
 # ---------------------------------------------------------------------------
 
-def parse_sam_output(text: str) -> list[np.ndarray]:
-    """Salida de texto de SAM 3.1 -> una máscara booleana HxW por instancia."""
-    from meta_sam_parser import CompletedOutcome, decode_mask_to_raster, image_segmentation_format
-
-    if not text.strip():
-        return []
-    parser = image_segmentation_format().create_parser()
-    parser.push(text)
-    result = parser.finish(CompletedOutcome()).result
-    masks = []
-    for rec in result.records:
-        if rec.kind != "mask":
-            continue
-        raster = decode_mask_to_raster(rec.mask)
-        arr = np.frombuffer(raster, dtype=np.uint8).reshape(rec.mask.height, rec.mask.width)
-        masks.append(arr.astype(bool))
-    return masks
+_BOX_TOKEN = re.compile(r"<\|box;([^|]*)\|>")
 
 
-def _resize_nearest(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+def _box_sizes(text: str) -> list[tuple[int, int]]:
+    """(w, h) de cada token de caja, en orden de aparición."""
+    sizes = []
+    for body in _BOX_TOKEN.findall(text):
+        kv = dict(part.partition("=")[::2] for part in body.split(";"))
+        sizes.append((int(kv["w"]), int(kv["h"])))
+    return sizes
+
+
+def _fit(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """Vecino más cercano: ajusta la máscara al tamaño de su caja si no coincide."""
     if mask.shape == shape:
         return mask
     rows = (np.arange(shape[0]) * mask.shape[0] // shape[0]).clip(0, mask.shape[0] - 1)
@@ -138,31 +159,69 @@ def _resize_nearest(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     return mask[np.ix_(rows, cols)]
 
 
-def output_shape(segs: dict[str, Segmentation]) -> Optional[tuple[int, int]]:
-    """Resolución de salida: la mayor de todas las máscaras (cubren la imagen entera)."""
-    shapes = [m.shape for s in segs.values() for m in s.masks]
-    if not shapes:
-        return None
-    return max(s[0] for s in shapes), max(s[1] for s in shapes)
+def parse_sam_output(text: str) -> list[Instance]:
+    """Salida de texto de SAM 3.1 -> instancias con máscara local y posición (x1, y1)."""
+    from meta_sam_parser import CompletedOutcome, decode_mask_to_raster, image_segmentation_format
+
+    if not text.strip():
+        return []
+    parser = image_segmentation_format().create_parser()
+    parser.push(text)
+    result = parser.finish(CompletedOutcome()).result
+    sizes = _box_sizes(text)
+    masks = [r for r in result.records if r.kind == "mask"]
+    if len(sizes) < len(masks):
+        raise ValueError("Faltan tamaños de imagen en la salida de SAM")
+    out = []
+    for rec, (w, h) in zip(masks, sizes):
+        raster = decode_mask_to_raster(rec.mask)
+        local = np.frombuffer(raster, dtype=np.uint8).reshape(rec.mask.height, rec.mask.width).astype(bool)
+        left, top = int(rec.bounds.left), int(rec.bounds.top)
+        box_shape = (int(rec.bounds.bottom) - top, int(rec.bounds.right) - left)
+        out.append(Instance(mask=_fit(local, box_shape), left=left, top=top, image_w=w, image_h=h))
+    return out
 
 
-def union_fraction(masks: list[np.ndarray], shape: tuple[int, int]) -> float:
-    if not masks:
+def image_shape(segs: dict[str, Segmentation]) -> Optional[tuple[int, int]]:
+    """(alto, ancho) de la imagen según SAM; None si no hay ninguna instancia."""
+    for key in DRAW_ORDER:
+        seg = segs.get(key)
+        if seg and seg.instances:
+            i = seg.instances[0]
+            return i.image_h, i.image_w
+    return None
+
+
+def to_canvas(inst: Instance, shape: tuple[int, int]) -> np.ndarray:
+    """Pega la máscara local en un lienzo del tamaño de la imagen, en (x1, y1), recortando."""
+    canvas = np.zeros(shape, dtype=bool)
+    h, w = inst.mask.shape
+    y0, x0 = max(inst.top, 0), max(inst.left, 0)
+    y1, x1 = min(inst.top + h, shape[0]), min(inst.left + w, shape[1])
+    if y0 < y1 and x0 < x1:
+        canvas[y0:y1, x0:x1] = inst.mask[y0 - inst.top : y1 - inst.top, x0 - inst.left : x1 - inst.left]
+    return canvas
+
+
+def union_fraction(instances: list[Instance], shape: tuple[int, int]) -> float:
+    """Píxeles de la unión de todas las instancias / (w * h)."""
+    if not instances:
         return 0.0
     union = np.zeros(shape, dtype=bool)
-    for m in masks:
-        union |= _resize_nearest(m, shape)
-    return float(union.mean())
+    for inst in instances:
+        union |= to_canvas(inst, shape)
+    return float(union.sum()) / (shape[0] * shape[1])
 
 
 def compose_rgba(segs: dict[str, Segmentation], shape: tuple[int, int]) -> np.ndarray:
+    """Máscara RGBA a tamaño completo de la imagen, fondo transparente."""
     img = np.zeros((*shape, 4), dtype=np.uint8)
     for key in DRAW_ORDER:
         seg = segs.get(key)
         if seg is None:
             continue
-        for m in seg.masks:
-            img[_resize_nearest(m, shape)] = COLORS[key]
+        for inst in seg.instances:
+            img[to_canvas(inst, shape)] = COLORS[key]
     return img
 
 
@@ -212,12 +271,12 @@ def build_evidence(
     desc: Optional[PhotoDescription],
     source_path: Optional[str] = None,
 ) -> tuple[Evidence, Optional[float], bool]:
-    shape = output_shape(segs)
+    shape = image_shape(segs)
     water = segs.get("water")
     if water is None or water.error:
         frac = None
     else:
-        frac = round(union_fraction(water.masks, shape), 4) if shape else 0.0
+        frac = round(union_fraction(water.instances, shape), 4) if shape else 0.0
     level = desc.water_level if desc else None
     discrepancy = is_discrepant(level, frac)
 
@@ -229,7 +288,7 @@ def build_evidence(
         f"Foto de {report_id}"
         + (f" en {place_name}" if place_name else "")
         + ": "
-        + (f"agua en {frac:.0%} de la imagen (SAM 3.1)" if frac is not None else "agua no medida")
+        + (f"agua en {frac:.1%} de la imagen (SAM 3.1)" if frac is not None else "agua no medida")
         + f"; {n('person')} personas, {n('house')} casas, {n('vehicle')} vehículos.",
         f"Nivel de agua según Spark: {level.replace('_', ' ') if level else 'no disponible'}.",
     ]
@@ -279,6 +338,8 @@ def describe_photo(url: str, *, client: Any) -> PhotoDescription:
             ],
             response_format=PhotoDescription,
             temperature=meta.TEMPERATURE,
+            reasoning_effort=meta.REASONING_EFFORT,
+            max_tokens=VISION_MAX_TOKENS,
         )
     except Exception as exc:  # noqa: BLE001
         raise meta.MetaAPIError(f"Fallo en visión ({type(exc).__name__})") from exc
@@ -288,7 +349,7 @@ def describe_photo(url: str, *, client: Any) -> PhotoDescription:
     return parsed
 
 
-def segment(url: str, concept: str, *, client: Any) -> list[np.ndarray]:
+def segment(url: str, concept: str, *, client: Any) -> list[Instance]:
     """Una petición SAM 3.1 por concepto (Responses API, sin streaming)."""
     try:
         resp = client.responses.create(
@@ -313,6 +374,14 @@ def segment(url: str, concept: str, *, client: Any) -> list[np.ndarray]:
         raise meta.MetaAPIError("Salida de SAM ilegible") from exc
 
 
+def _timed(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, Optional[Exception], int]:
+    t0 = time.perf_counter()
+    try:
+        return fn(*args, **kwargs), None, int((time.perf_counter() - t0) * 1000)
+    except Exception as exc:  # noqa: BLE001
+        return None, exc, int((time.perf_counter() - t0) * 1000)
+
+
 def evaluate_photo(
     data: bytes,
     *,
@@ -322,22 +391,23 @@ def evaluate_photo(
     client: Any,
     source_path: Optional[str] = None,
 ) -> PhotoResult:
+    """Spark visión y los 4 conceptos de SAM van en paralelo (no dependen entre sí)."""
     fmt = validate_photo(data)
     url = data_url(data, fmt)
-    try:
-        desc: Optional[PhotoDescription] = describe_photo(url, client=client)
-    except meta.MetaAPIError:
-        desc = None
-    segs: dict[str, Segmentation] = {}
-    for key, concept in CONCEPTS.items():
-        try:
-            segs[key] = Segmentation(concept, segment(url, concept, client=client))
-        except meta.MetaAPIError:
-            segs[key] = Segmentation(concept, error=True)
+    with ThreadPoolExecutor(max_workers=1 + len(CONCEPTS)) as pool:
+        vision_f = pool.submit(_timed, describe_photo, url, client=client)
+        sam_f = {k: pool.submit(_timed, segment, url, c, client=client) for k, c in CONCEPTS.items()}
+        desc, vision_err, vision_ms = vision_f.result()
+        segs: dict[str, Segmentation] = {}
+        for key, f in sam_f.items():
+            instances, err, ms = f.result()
+            segs[key] = Segmentation(CONCEPTS[key], instances or [], error=err is not None, ms=ms)
+    if vision_err is not None and not isinstance(vision_err, meta.MetaAPIError):
+        raise vision_err
     if desc is None and all(s.error for s in segs.values()):
         raise meta.MetaAPIError("No se pudo analizar la foto")
     ev, frac, discrepancy = build_evidence(evidence_id, report_id, place_name, segs, desc, source_path)
-    shape = output_shape(segs)
+    shape = image_shape(segs)
     png = encode_png(compose_rgba(segs, shape)) if shape else None
     return PhotoResult(
         evidence=ev,
@@ -346,4 +416,6 @@ def evaluate_photo(
         description=desc,
         discrepancy=discrepancy,
         mask_png=png,
+        image_size=(shape[1], shape[0]) if shape else None,
+        ms={"vision": vision_ms, **{k: s.ms for k, s in segs.items()}},
     )

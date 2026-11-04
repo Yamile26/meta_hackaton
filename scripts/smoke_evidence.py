@@ -8,8 +8,8 @@ Uso (desde la raíz, con MODEL_API_KEY en .env o en el entorno):
 Llamadas por ejecución (una sola vez, sin bucles de reintento):
   bulletin: 1 llamada a Spark (no usa la caché: siempre lee el PDF).
   photo:    1 Spark visión + 4 SAM 3.1 (agua, persona, casa, vehículo).
-El modo photo imprime también la forma de cada máscara y su caja, para comprobar que
-las máscaras de SAM cubren la imagen entera (supuesto de photo_eval.py).
+El modo photo imprime la caja (x1, y1), el tamaño de cada máscara (local a su caja) y el
+tamaño de la imagen; la fracción de agua se calcula sobre la imagen entera.
 """
 import argparse
 import sys
@@ -69,12 +69,14 @@ def run_photo(photo: Path, place: str | None, out: Path | None) -> int:
             )
             raw = resp.output_text or ""
             print(f"salida cruda ({len(raw)} caracteres): {raw[:160]}{'…' if len(raw) > 160 else ''}")
-            masks = pe.parse_sam_output(raw)
-            segs[key] = pe.Segmentation(concept, masks)
-            for i, m in enumerate(masks):
-                ys, xs = m.nonzero()
-                bbox = (xs.min(), ys.min(), xs.max(), ys.max()) if len(xs) else None
-                print(f"  instancia {i}: máscara {m.shape[1]}x{m.shape[0]}, píxeles={int(m.sum())}, bbox en máscara={bbox}")
+            instances = pe.parse_sam_output(raw)
+            segs[key] = pe.Segmentation(concept, instances)
+            for i, inst in enumerate(instances):
+                h, w = inst.mask.shape
+                print(
+                    f"  instancia {i}: caja x1={inst.left} y1={inst.top} ({w}x{h}), "
+                    f"píxeles={int(inst.mask.sum())}, imagen {inst.image_w}x{inst.image_h}"
+                )
         except Exception as exc:  # noqa: BLE001
             print(f"falló: {exc}")
             segs[key] = pe.Segmentation(concept, error=True)
@@ -82,7 +84,7 @@ def run_photo(photo: Path, place: str | None, out: Path | None) -> int:
     ev, frac, disc = pe.build_evidence("EV-100", "R-00", canonical.name if canonical else None, segs, desc)
     print("\n=== Evidence resultante ===")
     print(ev.model_dump_json(indent=2))
-    shape = pe.output_shape(segs)
+    shape = pe.image_shape(segs)
     if out and shape:
         out.write_bytes(pe.encode_png(pe.compose_rgba(segs, shape)))
         print(f"\nMáscara guardada en {out} ({shape[1]}x{shape[0]})")
