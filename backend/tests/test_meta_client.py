@@ -111,12 +111,12 @@ def test_extract_report_rejects_empty():
 def test_sanitize_opinion_drops_invented_ids():
     evs = [Evidence(id="EV-01", type="ndwi", summary="s", value=0.2)]
     op = sanitize_opinion(
-        LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-99"], reason=" x "), evs
+        LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-99"], claims=[], reason=" x "), evs
     )
     assert op.status == VerdictStatus.sin_evidencia
     assert op.evidence_ids == []
     op = sanitize_opinion(
-        LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-01", "EV-01", "EV-99"], reason="x"), evs
+        LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-01", "EV-01", "EV-99"], claims=[], reason="x"), evs
     )
     assert op.status == VerdictStatus.confirmado
     assert op.evidence_ids == ["EV-01"]

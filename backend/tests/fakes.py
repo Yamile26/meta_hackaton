@@ -1,10 +1,11 @@
 """Cliente falso de Meta: respuestas guionizadas, sin red."""
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from src.clients.meta import AlertText, LLMOpinion, ReportExtraction
+from src.clients.meta import AlertText, EvidenceClaim, LLMOpinion, ReportExtraction
 from src.models.schemas import ClaimType, VerdictStatus
 from src.tools.bulletin import BulletinExtraction, BulletinZone
 from src.tools.photo_eval import PhotoDescription
@@ -54,6 +55,7 @@ class FakeMeta:
         sam_fail: tuple[str, ...] = (),
         fail_orchestrator: bool = False,
         fail_bulletin: bool = False,
+        parallel_probe: bool = False,
     ) -> None:
         self.turns = list(turns or [])
         self.extraction = extraction or ReportExtraction(
@@ -64,7 +66,10 @@ class FakeMeta:
             summary_en="A resident reports water entering 3 houses in Jirón Progreso.",
         )
         self.opinion = opinion or LLMOpinion(
-            status=VerdictStatus.confirmado, evidence_ids=["EV-01"], reason="NDWI rose."
+            status=VerdictStatus.confirmado,
+            evidence_ids=["EV-01"],
+            claims=[EvidenceClaim(evidence_id="EV-01", quote="Cambio de NDWI en Jirón Progreso: +0.240")],
+            reason="NDWI in Jirón Progreso rose by +0.240.",
         )
         self.alert_text = alert_text
         self.alert_text_en = alert_text_en
@@ -87,6 +92,13 @@ class FakeMeta:
         self.sam_fail = sam_fail
         self.fail_orchestrator = fail_orchestrator
         self.fail_bulletin = fail_bulletin
+        # Sondas de paralelismo: cada llamada espera a que las otras hayan empezado.
+        self.parallel_probe = parallel_probe
+        self.alert_started = threading.Event()
+        self.opinion_saw_alert: Optional[bool] = None
+        self.photo_barrier = threading.Barrier(5, timeout=3)
+        self.photo_parallel = True
+        self._lock = threading.Lock()
         self.create_calls: list[dict[str, Any]] = []
         self.parse_calls: list[dict[str, Any]] = []
         self.sam_calls: list[dict[str, Any]] = []
@@ -104,9 +116,24 @@ class FakeMeta:
         calls = self.turns.pop(0) if self.turns else []
         return _resp(SimpleNamespace(content=None if calls else "Listo.", tool_calls=calls or None))
 
+    def _probe_photo(self) -> None:
+        if not self.parallel_probe:
+            return
+        try:
+            self.photo_barrier.wait()
+        except threading.BrokenBarrierError:
+            self.photo_parallel = False
+
     def _parse(self, **kw: Any) -> Any:
-        self.parse_calls.append(kw)
+        with self._lock:
+            self.parse_calls.append(kw)
         fmt = kw["response_format"]
+        if fmt is AlertText:
+            self.alert_started.set()
+        if fmt is LLMOpinion and self.parallel_probe:
+            self.opinion_saw_alert = self.alert_started.wait(timeout=3)
+        if fmt is PhotoDescription:
+            self._probe_photo()
         if fmt is BulletinExtraction and self.fail_bulletin:
             raise RuntimeError("PDF rechazado")
         parsed = {
@@ -119,7 +146,9 @@ class FakeMeta:
         return _resp(SimpleNamespace(parsed=parsed))
 
     def _sam(self, **kw: Any) -> Any:
-        self.sam_calls.append(kw)
+        with self._lock:
+            self.sam_calls.append(kw)
+        self._probe_photo()
         concept = kw["input"][0]["content"][0]["text"]
         if concept in self.sam_fail:
             raise RuntimeError("SAM caído")

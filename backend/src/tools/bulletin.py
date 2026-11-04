@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 
 MAX_PDF_BYTES = 20 * 1024 * 1024  # la API admite 50 MB en línea; el boletín es pequeño
 FREE_TEXT_MAX = 80
+BULLETIN_MAX_TOKENS = 2000
 
 Hazard = Literal["inundacion", "desborde_de_rio", "lluvia_intensa", "deslizamiento", "otro"]
 Intensity = Literal["baja", "moderada", "alta", "muy_alta"]
@@ -182,6 +183,8 @@ def extract_bulletin(
             ],
             response_format=BulletinExtraction,
             temperature=meta.TEMPERATURE,
+            reasoning_effort=meta.REASONING_EFFORT,
+            max_tokens=BULLETIN_MAX_TOKENS,
         )
     except Exception as exc:  # noqa: BLE001
         raise meta.MetaAPIError(f"Fallo leyendo el boletín ({type(exc).__name__})") from exc

@@ -29,6 +29,11 @@ TEXT_MODEL = "muse-spark-1.3"
 ASR_URL = f"{BASE_URL}/asr/transcribe"
 ASR_MODEL_DEFAULT = "muse-voice-transcribe-1.0"
 TEMPERATURE = 0
+# Latencia: esfuerzo de razonamiento bajo en extracción, verificación, alerta, boletín,
+# visión y orquestación (https://dev.meta.ai/docs/reasoning). `max_tokens` limita
+# razonamiento + respuesta juntos; si se agota, el SDK falla y se usa el respaldo.
+REASONING_EFFORT = "low"
+MAX_TOKENS = {"extract": 1200, "verify": 1200, "alert": 1200}
 
 WAV_MAX_BYTES = 32 * 1024 * 1024
 WAV_MAX_SECONDS = 10 * 60
@@ -184,6 +189,8 @@ def extract_report(
             ],
             response_format=ReportExtraction,
             temperature=TEMPERATURE,
+            reasoning_effort=REASONING_EFFORT,
+            max_tokens=MAX_TOKENS["extract"],
         )
     except Exception as exc:  # noqa: BLE001 - se re-lanza sin detalles internos
         raise MetaAPIError(f"Fallo en extracción ({type(exc).__name__})") from exc
@@ -264,9 +271,17 @@ def transcribe(
 # Opinión del modelo sobre un veredicto (el veredicto lo decide verify.py)
 # ---------------------------------------------------------------------------
 
+class EvidenceClaim(BaseModel):
+    """Fragmento LITERAL del `summary` de una evidencia en que se apoya la explicación."""
+
+    evidence_id: str
+    quote: str
+
+
 class LLMOpinion(BaseModel):
     status: VerdictStatus
     evidence_ids: list[str]
+    claims: list[EvidenceClaim]
     reason: str
 
 
@@ -280,8 +295,12 @@ _VERIFY_SYSTEM = (
     "evidence_ids: SOLO ids que aparecen en las evidencias dadas; no inventes ninguno. "
     "Si no citas ninguno, el status debe ser sin_evidencia.\n"
     "Para NDWI, value es el cambio de NDWI (después menos antes): un aumento claro indica "
-    "agua nueva. reason: una o dos frases EN INGLÉS, sin cifras que no estén en los datos; "
-    "los nombres de lugares se quedan en español."
+    "agua nueva.\n"
+    "claims: para cada hecho que uses, el id de la evidencia y un fragmento COPIADO LITERALMENTE "
+    "de su campo summary (en español, sin cambiar palabras).\n"
+    "reason: una o dos frases EN INGLÉS que solo digan lo que está en esos fragmentos; no "
+    "agregues detalles (p. ej. agua dentro de casas, personas, daños) que los fragmentos no "
+    "digan, ni cifras que no estén ahí. Los nombres de lugares se quedan en español."
 )
 
 
@@ -290,7 +309,8 @@ def sanitize_opinion(opinion: LLMOpinion, evidence: list[Evidence]) -> LLMOpinio
     known = {e.id for e in evidence}
     ids = [i for i in dict.fromkeys(opinion.evidence_ids) if i in known]
     status = opinion.status if ids else VerdictStatus.sin_evidencia
-    return LLMOpinion(status=status, evidence_ids=ids, reason=opinion.reason.strip())
+    claims = [c for c in opinion.claims if c.evidence_id in known]
+    return LLMOpinion(status=status, evidence_ids=ids, claims=claims, reason=opinion.reason.strip())
 
 
 def verify_with_llm(report: Report, evidence: list[Evidence], *, client: Any = None) -> LLMOpinion:
@@ -310,6 +330,8 @@ def verify_with_llm(report: Report, evidence: list[Evidence], *, client: Any = N
             messages=[{"role": "system", "content": _VERIFY_SYSTEM}, {"role": "user", "content": user}],
             response_format=LLMOpinion,
             temperature=TEMPERATURE,
+            reasoning_effort=REASONING_EFFORT,
+            max_tokens=MAX_TOKENS["verify"],
         )
     except Exception as exc:  # noqa: BLE001
         raise MetaAPIError(f"Fallo en verificación ({type(exc).__name__})") from exc
@@ -351,6 +373,8 @@ def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> AlertText:
             ],
             response_format=AlertText,
             temperature=TEMPERATURE,
+            reasoning_effort=REASONING_EFFORT,
+            max_tokens=MAX_TOKENS["alert"],
         )
     except Exception as exc:  # noqa: BLE001
         raise MetaAPIError(f"Fallo en redacción de alerta ({type(exc).__name__})") from exc

@@ -6,13 +6,22 @@ Muse Spark 1.3 decide el orden de las herramientas con tool calling, pero:
   la alerta, una zona existente.
 - El veredicto lo decide `tools/verify.py`; los números, `tools/prioritize.py` y `tools/alert.py`.
 - Si el modelo falla o se salta pasos, el código ejecuta los pendientes en orden.
-- Cada paso emite un `AgentEvent` (traza para el SSE de /stream).
+- Cada paso emite un `AgentEvent` (traza para el SSE de /stream) con `data.ms`.
 
 Dos flujos:
 - Audio (AUDIO_STEPS): transcribir -> estructurar -> leer boletín (Vigía, con caché)
   -> verificar -> priorizar -> borrador de alerta.
 - Foto de un reporte existente (PHOTO_STEPS): evaluar foto (Ojo: Spark visión + SAM 3.1)
   -> re-verificar -> priorizar -> borrador de alerta.
+
+Latencia (lo que se ejecuta en paralelo, porque no depende de lo anterior):
+- La lectura del boletín arranca en segundo plano al empezar el reporte, en paralelo con
+  la transcripción y la extracción.
+- La redacción de la alerta arranca en cuanto el código decide el veredicto, en paralelo
+  con la opinión del modelo. Solo se usa si, tras la opinión, los hechos de la alerta
+  siguen siendo los mismos; si no, se descarta.
+- En la foto, Spark visión y los 4 conceptos de SAM van en paralelo (tools/photo_eval.py).
+- Todas las llamadas a Spark usan reasoning_effort="low" y max_tokens acotado.
 
 Coste por reporte de audio (llamadas a la API real): 1 transcripción, 1 extracción,
 1 lectura del boletín (solo la primera vez; luego caché en disco), 1 opinión de
@@ -27,25 +36,27 @@ import logging
 import os
 import re
 import threading
+import time
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from src.clients import meta
-from src.models.schemas import AgentEvent, AlertDraft, Report, Verdict, Zone
-from src.models.schemas import Evidence
+from src.models.schemas import AgentEvent, AlertDraft, Evidence, Report, Verdict, Zone
 from src.tools import alert as alert_tools
 from src.tools import bulletin as bulletin_tools
 from src.tools import photo_eval
 from src.tools.event_data import DEFAULT_EVENT_DIR, evidence_for_place, load_event
 from src.tools.gazetteer import load_gazetteer
 from src.tools.prioritize import prioritize
-from src.tools.verify import verify_report
+from src.tools.verify import decide_verdict, explanation_is_grounded, reconcile, reconcile_opinion
 
 log = logging.getLogger(__name__)
 
 MAX_TURNS = 8
+ORCHESTRATOR_MAX_TOKENS = 600
 AUDIO_STEPS = (
     "transcribe_audio",
     "extract_report",
@@ -62,6 +73,19 @@ BULLETIN_FILE = "bulletin.pdf"
 
 class PipelineError(RuntimeError):
     """Fallo que impide procesar el reporte. El mensaje es apto para el usuario."""
+
+
+def _ms(t0: float) -> int:
+    return int((time.perf_counter() - t0) * 1000)
+
+
+def _timed_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[Any, Optional[Exception], int]:
+    """(resultado, excepción, ms). Nunca lanza: para usar en hilos de fondo."""
+    t0 = time.perf_counter()
+    try:
+        return fn(*args, **kwargs), None, _ms(t0)
+    except Exception as exc:  # noqa: BLE001
+        return None, exc, _ms(t0)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +191,15 @@ SYSTEM_PROMPT = (
 
 
 @dataclass
+class AlertPrefetch:
+    """Redacción de alerta lanzada en paralelo con la opinión del verificador."""
+
+    zone_id: str
+    facts: dict[str, Any]
+    future: Future
+
+
+@dataclass
 class RunState:
     steps: tuple[str, ...] = AUDIO_STEPS
     audio_path: Optional[Path] = None
@@ -177,7 +210,9 @@ class RunState:
     report: Optional[Report] = None
     verdict: Optional[Verdict] = None
     alert: Optional[AlertDraft] = None
+    alert_prefetch: Optional[AlertPrefetch] = None
     done: list[str] = field(default_factory=list)
+    steps_ms: dict[str, int] = field(default_factory=dict)
 
     @property
     def pending(self) -> list[str]:
@@ -211,6 +246,7 @@ class Centinela:
         self.bulletin_path = Path(event_dir) / BULLETIN_FILE
         self.bulletin_sha: Optional[str] = None  # boletín ya incorporado
         self._bulletin_failed: Optional[str] = None  # no reintentar en este proceso
+        self._bulletin_future: Optional[Future] = None
         self.masks: dict[str, Path] = {}
         data = load_event(self.places, event_dir)
         self.evidence = {e.id: e for e in data.evidence}
@@ -226,6 +262,8 @@ class Centinela:
         self._client = client
         self._transcriber = transcriber or meta.transcribe
         self._lock = threading.RLock()
+        # Los trabajos de fondo NUNCA toman self._lock (el hilo principal lo tiene mientras espera).
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="centinela")
         self.emit(
             "ojo",
             f"{len(self.evidence)} evidencias cargadas (fuente: {self.data_source}).",
@@ -265,25 +303,28 @@ class Centinela:
         p = self.masks.get(evidence_id)
         return p if p is not None and p.is_file() else None
 
-    # -- pasos ---------------------------------------------------------------
+    # -- pasos: voz y vigía -------------------------------------------------------
 
     def step_transcribe(self, run: RunState) -> dict[str, Any]:
         if run.audio_path is None:
             return {"skipped": "el reporte llegó como texto"}
         self.emit("voz", "Transcribiendo audio con muse-voice-transcribe-1.0.")
+        t0 = time.perf_counter()
         try:
             run.text = self._transcriber(run.audio_path, places=self.places)
         except (meta.MetaAPIError, ValueError) as exc:
             raise PipelineError("No se pudo transcribir el audio") from exc
         if not run.text:
             raise PipelineError("La transcripción está vacía")
-        self.emit("voz", "Transcripción lista.", {"chars": len(run.text), "transcript": run.text})
+        ms = _ms(t0)
+        self.emit("voz", "Transcripción lista.", {"chars": len(run.text), "transcript": run.text, "ms": ms})
         return {"chars": len(run.text)}
 
     def step_extract(self, run: RunState) -> dict[str, Any]:
         if not run.text:
             raise PipelineError("No hay texto que estructurar")
         report_id = f"R-{len(self.items) + 1:02d}"
+        t0 = time.perf_counter()
         try:
             run.report = meta.extract_report(
                 run.text,
@@ -298,7 +339,7 @@ class Centinela:
         self.emit(
             "vigia",
             f"Reporte {r.id}: {r.claim_type.value} en {r.place_name or 'lugar desconocido'}.",
-            {"report": r.model_dump(mode="json")},
+            {"report": r.model_dump(mode="json"), "ms": _ms(t0)},
         )
         return {
             "report_id": r.id,
@@ -307,30 +348,56 @@ class Centinela:
             "severity": r.severity,
         }
 
-    def step_read_bulletin(self, run: RunState) -> dict[str, Any]:
+    def _bulletin_pending(self) -> tuple[Optional[str], Optional[str]]:
+        """(sha si hay que incorporarlo, motivo para saltarlo)."""
         if not self.bulletin_path.is_file():
-            return {"skipped": "no hay boletín PDF; se usa el boletín simulado"}
+            return None, "no hay boletín PDF; se usa el boletín simulado"
         try:
             sha = bulletin_tools.file_sha256(bulletin_tools.validate_pdf(self.bulletin_path))
         except ValueError:
-            self.emit("vigia", "El archivo del boletín no es un PDF válido; se usa el simulado.")
-            return {"skipped": "boletín inválido"}
+            return None, "boletín inválido"
         if sha == self.bulletin_sha:
-            return {"skipped": "boletín ya incorporado"}
+            return None, "boletín ya incorporado"
         if sha == self._bulletin_failed or not self.use_llm:
-            return {"skipped": "boletín no disponible en esta sesión"}
-        self.emit("vigia", "Leyendo el boletín oficial (PDF) con Muse Spark 1.3.")
-        try:
-            extraction, sha, cached = bulletin_tools.load_bulletin(
-                self.bulletin_path,
-                places=self.places,
-                client_factory=lambda: self.client,
-                cache_dir=self.runtime_dir,
-            )
-        except (meta.MetaAPIError, ValueError):
+            return None, "boletín no disponible en esta sesión"
+        return sha, None
+
+    def _start_bulletin_prefetch(self) -> None:
+        """Lanza la lectura del boletín en segundo plano (no depende del reporte)."""
+        if self._bulletin_future is not None:
+            return
+        sha, _ = self._bulletin_pending()
+        if sha is None:
+            return
+        self.emit("vigia", "Leyendo el boletín oficial (PDF) con Muse Spark 1.3 en segundo plano.")
+        self._bulletin_future = self._pool.submit(
+            _timed_call,
+            bulletin_tools.load_bulletin,
+            self.bulletin_path,
+            places=self.places,
+            client_factory=lambda: self.client,
+            cache_dir=self.runtime_dir,
+        )
+
+    def step_read_bulletin(self, run: RunState) -> dict[str, Any]:
+        sha, skip = self._bulletin_pending()
+        if sha is None:
+            if skip == "boletín inválido":
+                self.emit("vigia", "El archivo del boletín no es un PDF válido; se usa el simulado.")
+            return {"skipped": skip}
+        prefetched = self._bulletin_future is not None
+        if not prefetched:
+            self._start_bulletin_prefetch()
+        assert self._bulletin_future is not None
+        t0 = time.perf_counter()
+        result, err, call_ms = self._bulletin_future.result()
+        self._bulletin_future = None
+        waited = _ms(t0)
+        if err is not None:
             self._bulletin_failed = sha
-            self.emit("vigia", "No se pudo leer el boletín; se mantiene el boletín simulado.")
+            self.emit("vigia", "No se pudo leer el boletín; se mantiene el boletín simulado.", {"ms": call_ms})
             return {"skipped": "fallo leyendo el boletín"}
+        extraction, sha, cached = result
         text = bulletin_tools.pdf_text(self.bulletin_path)
         with self._lock:
             simulated = [i for i, e in self.evidence.items() if e.type == "bulletin" and e.source_path is None]
@@ -345,9 +412,17 @@ class Centinela:
             "vigia",
             f"Boletín incorporado{' (desde caché)' if cached else ''}: "
             f"{len(new)} evidencia(s) para {', '.join(e.place_name or '' for e in new) or 'ningún lugar del gazetteer'}.",
-            {"evidence": [e.model_dump(mode="json") for e in new], "replaced": simulated},
+            {
+                "evidence": [e.model_dump(mode="json") for e in new],
+                "replaced": simulated,
+                "ms": call_ms,
+                "waited_ms": waited,
+                "parallel": prefetched,
+            },
         )
         return {"evidence_ids": [e.id for e in new], "places": [e.place_name for e in new]}
+
+    # -- pasos: ojo -----------------------------------------------------------------
 
     def step_evaluate_photo(self, run: RunState) -> dict[str, Any]:
         if run.report is None or run.photo is None:
@@ -360,8 +435,9 @@ class Centinela:
             # reserva el id mientras se analiza
             self.evidence[ev_id] = Evidence(id=ev_id, type="photo", place_name=r.place_name, summary="Analizando foto…")
         fmt = photo_eval.validate_photo(run.photo)
-        self.emit("ojo", f"Analizando foto de {r.id} con Spark (visión) y SAM 3.1.")
+        self.emit("ojo", f"Analizando foto de {r.id} con Spark (visión) y SAM 3.1 en paralelo.")
         source = f"photos/{ev_id}.{fmt}"
+        t0 = time.perf_counter()
         try:
             result = photo_eval.evaluate_photo(
                 run.photo,
@@ -375,6 +451,7 @@ class Centinela:
             with self._lock:
                 self.evidence.pop(ev_id, None)
             raise PipelineError("No se pudo analizar la foto") from exc
+        ms = _ms(t0)
         (self.runtime_dir / "photos").mkdir(parents=True, exist_ok=True)
         (self.runtime_dir / source).write_bytes(run.photo)
         if result.mask_png:
@@ -395,6 +472,9 @@ class Centinela:
                 "water_level": result.description.water_level if result.description else None,
                 "discrepancy": result.discrepancy,
                 "has_mask": bool(result.mask_png),
+                "image_size": list(result.image_size) if result.image_size else None,
+                "ms": ms,
+                "calls_ms": result.ms,
             },
         )
         return {
@@ -403,6 +483,27 @@ class Centinela:
             "water_fraction": result.water_fraction,
             "discrepancy": result.discrepancy,
         }
+
+    # -- pasos: verificador y estratega ------------------------------------------------
+
+    def _with_item(self, report: Report, verdict: Verdict) -> list[tuple[Report, Verdict]]:
+        items = [(r, v) for r, v in self.items if r.id != report.id]
+        return [*items, (report, verdict)]
+
+    def _prefetch_alert(self, report: Report, code_verdict: Verdict) -> Optional[AlertPrefetch]:
+        """Lanza la redacción de la alerta suponiendo que el modelo coincide con el código."""
+        with self._lock:
+            items = self._with_item(report, code_verdict)
+            zones = prioritize(self.zone_specs, items)
+            best = next((z for z in zones if z.score > 0), None)
+            if best is None:
+                return None
+            try:
+                facts = alert_tools.alert_facts(best, items)
+            except alert_tools.NoEvidenceError:
+                return None
+        future = self._pool.submit(_timed_call, meta.draft_alert_text, facts, client=self.client)
+        return AlertPrefetch(best.id, facts, future)
 
     def step_verify(self, run: RunState) -> dict[str, Any]:
         if run.report is None:
@@ -413,9 +514,20 @@ class Centinela:
             f"{len(evidence)} evidencias para {run.report.place_name or 'lugar desconocido'}.",
             {"evidence_ids": [e.id for e in evidence]},
         )
-        llm = (lambda r, e: meta.verify_with_llm(r, e, client=self.client)) if self.use_llm else None
-        run.verdict = verify_report(run.report, evidence, llm=llm)
-        v = run.verdict
+        code = decide_verdict(run.report, evidence)
+        ms = None
+        grounded = None
+        if self.use_llm:
+            run.alert_prefetch = self._prefetch_alert(run.report, code)
+            opinion, err, ms = _timed_call(meta.verify_with_llm, run.report, evidence, client=self.client)
+            if err is not None:
+                v = reconcile(code, None)
+            else:
+                grounded = explanation_is_grounded(opinion.reason, opinion.claims, evidence)
+                v = reconcile_opinion(code, opinion, evidence)
+        else:
+            v = code
+        run.verdict = v
         with self._lock:
             idx = next((i for i, (r, _) in enumerate(self.items) if r.id == run.report.id), None)
             if idx is None:
@@ -426,8 +538,9 @@ class Centinela:
             "verificador",
             f"Veredicto {v.report_id}: {v.status.value}"
             + (" (requiere revisión humana)" if v.needs_review else "")
+            + ("; explicación del modelo descartada por no estar anclada a la evidencia" if grounded is False else "")
             + ".",
-            {"verdict": v.model_dump(mode="json")},
+            {"verdict": v.model_dump(mode="json"), "ms": ms, "explanation_grounded": grounded},
         )
         return {
             "status": v.status.value,
@@ -450,18 +563,23 @@ class Centinela:
                 return {"skipped": "sin zonas con reportes confirmados"}
             zone_id = best.id
         try:
-            run.alert = self.draft_alert(zone_id)
+            run.alert = self.draft_alert(zone_id, prefetch=run.alert_prefetch)
         except KeyError:
             return {"error": f"zona desconocida: {zone_id}"}
         except alert_tools.NoEvidenceError:
             self.emit("estratega", f"{zone_id} no tiene reportes confirmados: no se redacta alerta.")
             return {"skipped": f"{zone_id} sin reportes confirmados"}
+        finally:
+            run.alert_prefetch = None
         return {"zone_id": run.alert.zone_id, "evidence_ids": run.alert.evidence_ids}
 
     # -- alertas (también usadas por la API) -----------------------------------
 
-    def draft_alert(self, zone_id: str) -> AlertDraft:
-        """Lanza KeyError si la zona no existe y NoEvidenceError si no hay confirmados."""
+    def draft_alert(self, zone_id: str, prefetch: Optional[AlertPrefetch] = None) -> AlertDraft:
+        """Lanza KeyError si la zona no existe y NoEvidenceError si no hay confirmados.
+
+        Si `prefetch` se lanzó con exactamente los mismos hechos, se usa su texto.
+        """
         with self._lock:
             zone = self.zone(zone_id)
             if zone is None:
@@ -469,25 +587,32 @@ class Centinela:
             facts = alert_tools.alert_facts(zone, self.items)
         text = alert_tools.template_text(facts)
         origin = "plantilla"
+        ms = None
+        used_prefetch = False
         if self.use_llm:
-            try:
-                candidate = meta.draft_alert_text(facts, client=self.client)
-                if alert_tools.text_is_safe(candidate.text_es, facts) and alert_tools.text_is_safe(
-                    candidate.text_en, facts
-                ):
-                    text = alert_tools.bilingual(candidate.text_es, candidate.text_en)
-                    origin = "modelo"
-                else:
-                    self.emit("estratega", "El texto del modelo no pasó la validación; se usa la plantilla.")
-            except meta.MetaAPIError:
+            if prefetch is not None and prefetch.zone_id == zone_id and prefetch.facts == facts:
+                candidate, err, ms = prefetch.future.result()
+                used_prefetch = True
+            else:
+                if prefetch is not None:
+                    self.emit("estratega", "Los hechos cambiaron tras la opinión del modelo: se descarta el borrador anticipado.")
+                candidate, err, ms = _timed_call(meta.draft_alert_text, facts, client=self.client)
+            if err is not None:
                 self.emit("estratega", "Modelo no disponible; se usa la plantilla de alerta.")
+            elif alert_tools.text_is_safe(candidate.text_es, facts) and alert_tools.text_is_safe(
+                candidate.text_en, facts
+            ):
+                text = alert_tools.bilingual(candidate.text_es, candidate.text_en)
+                origin = "modelo"
+            else:
+                self.emit("estratega", "El texto del modelo no pasó la validación; se usa la plantilla.")
         draft = alert_tools.make_draft(facts, text)
         with self._lock:
             self.alerts[zone_id] = draft
         self.emit(
             "estratega",
             f"Borrador de alerta para {zone.name} ({origin}); pendiente de aprobación humana.",
-            {"alert": draft.model_dump(mode="json")},
+            {"alert": draft.model_dump(mode="json"), "ms": ms, "parallel": used_prefetch},
         )
         return draft
 
@@ -521,6 +646,13 @@ class Centinela:
         return result
 
     def _run_step(self, run: RunState, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        t0 = time.perf_counter()
+        try:
+            return self._dispatch(run, name, args)
+        finally:
+            run.steps_ms[name] = run.steps_ms.get(name, 0) + _ms(t0)
+
+    def _dispatch(self, run: RunState, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "transcribe_audio":
             return self.step_transcribe(run)
         if name == "extract_report":
@@ -552,13 +684,18 @@ class Centinela:
         for _ in range(self.max_turns):
             if not run.pending:
                 return
+            t0 = time.perf_counter()
             resp = self.client.chat.completions.create(
                 model=meta.TEXT_MODEL,
                 messages=messages,
                 tools=tools,
                 temperature=0,
                 parallel_tool_calls=False,
+                reasoning_effort=meta.REASONING_EFFORT,
+                max_tokens=ORCHESTRATOR_MAX_TOKENS,
             )
+            turn_ms = _ms(t0)
+            run.steps_ms["orchestrator_turns"] = run.steps_ms.get("orchestrator_turns", 0) + turn_ms
             msg = resp.choices[0].message
             calls = msg.tool_calls or []
             if not calls:
@@ -578,7 +715,7 @@ class Centinela:
                 }
             )
             for tc in calls:
-                self.emit("orquestador", f"El modelo llama a {tc.function.name}.")
+                self.emit("orquestador", f"El modelo llama a {tc.function.name}.", {"ms": turn_ms})
                 result = self._call_tool(run, tc.function.name, tc.function.arguments)
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result, ensure_ascii=False)}
@@ -612,8 +749,11 @@ class Centinela:
         return self._execute(run, f"Nueva foto para {report_id}.", {"kind": "foto", "report_id": report_id})
 
     def _execute(self, run: RunState, intro: str, intro_data: dict[str, Any]) -> RunState:
+        t0 = time.perf_counter()
         with self._lock:
             self.emit("orquestador", intro, intro_data)
+            if "read_bulletin" in run.steps:
+                self._start_bulletin_prefetch()
             if self.use_llm:
                 try:
                     self._orchestrate(run)
@@ -629,5 +769,13 @@ class Centinela:
                 if "error" in result:
                     raise PipelineError(f"Falló el paso {step}")
                 run.done.append(step)
-            self.emit("orquestador", "Reporte procesado.", {"report_id": run.report.id if run.report else None})
+            self.emit(
+                "orquestador",
+                f"Reporte procesado en {_ms(t0) / 1000:.1f} s.",
+                {
+                    "report_id": run.report.id if run.report else None,
+                    "ms": _ms(t0),
+                    "steps_ms": dict(run.steps_ms),
+                },
+            )
         return run

@@ -48,7 +48,7 @@ def test_code_decides_verdict_even_if_llm_disagrees(tmp_path):
         extraction=ReportExtraction(
             place_name="Avenida Central", claim_type=ClaimType.flood, severity=3, houses_affected=None, summary_en=None
         ),
-        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-05"], reason="Yes."),
+        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-05"], claims=[], reason="Yes."),
     )
     c = make(client)
     run = c.run(audio_path=tmp_path / "a.wav")
@@ -192,7 +192,7 @@ def test_bulletin_cannot_add_dike_rumor_place():
             place_name="Las Palmeras", claim_type=ClaimType.flood, severity=3, houses_affected=None,
             summary_en="The dike broke.",
         ),
-        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=[], reason="Bulletin."),
+        opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=[], claims=[], reason="Bulletin."),
     )
     run = make(client).run(text="¡Se rompió el dique en Las Palmeras!")
     assert run.verdict.status == VerdictStatus.sin_evidencia
@@ -213,7 +213,7 @@ def test_photo_flow_reverifies_report(tmp_path):
         extraction=ReportExtraction(
             place_name="Avenida Central", claim_type=ClaimType.flood, severity=2, houses_affected=None, summary_en=None
         ),
-        opinion=LLMOpinion(status=VerdictStatus.contradicho, evidence_ids=["EV-05"], reason="NDWI flat."),
+        opinion=LLMOpinion(status=VerdictStatus.contradicho, evidence_ids=["EV-05"], claims=[], reason="NDWI flat."),
     )
     c = make(client)
     first = c.run(text="Avenida Central inundada")
@@ -271,3 +271,105 @@ def test_photo_errors():
 
 def test_audio_steps_include_bulletin_before_verify():
     assert AUDIO_STEPS.index("read_bulletin") < AUDIO_STEPS.index("verify_report")
+
+
+# --- latencia: tiempos en la traza, esfuerzo bajo y paralelismo -------------------------
+
+from src.clients.meta import AlertText, EvidenceClaim  # noqa: E402
+
+
+def events_with(c, agent, needle):
+    return [e for e in c.bus.history() if e.agent == agent and needle in e.message]
+
+
+def test_trace_includes_ms_for_each_model_step(tmp_path):
+    c = make(FakeMeta(turns=[[tool_call(s)] for s in AUDIO_STEPS]))
+    c.run(audio_path=tmp_path / "a.wav")
+    for agent, needle in [
+        ("voz", "Transcripción lista"),
+        ("vigia", "Reporte R-01"),
+        ("vigia", "Boletín incorporado"),
+        ("verificador", "Veredicto"),
+        ("estratega", "Borrador de alerta"),
+        ("orquestador", "El modelo llama a"),
+    ]:
+        [ev, *_] = events_with(c, agent, needle)
+        assert isinstance(ev.data["ms"], int) and ev.data["ms"] >= 0, (agent, needle)
+    final = events_with(c, "orquestador", "Reporte procesado")[-1]
+    assert final.data["ms"] >= 0
+    assert set(AUDIO_STEPS) <= set(final.data["steps_ms"])
+    assert "orchestrator_turns" in final.data["steps_ms"]
+
+
+def test_spark_calls_use_low_reasoning_and_bounded_tokens():
+    client = FakeMeta(turns=[[tool_call(s)] for s in AUDIO_STEPS])
+    make(client).run(text="Jirón Progreso inundado")
+    calls = client.parse_calls + client.create_calls
+    assert calls
+    for kw in calls:
+        assert kw["reasoning_effort"] == "low"
+        assert 0 < kw["max_tokens"] <= 2000
+
+
+def test_alert_drafting_runs_in_parallel_with_verifier_opinion():
+    client = FakeMeta(parallel_probe=True)
+    c = make(client)
+    run = c.run(text="Jirón Progreso inundado")
+    assert client.opinion_saw_alert is True  # la alerta ya había empezado mientras opinaba el verificador
+    assert len(client.calls_for(AlertText)) == 1  # se usa el borrador anticipado, sin segunda llamada
+    assert run.alert is not None and run.alert.text.startswith("Inundación en Jirón Progreso")
+    assert events_with(c, "estratega", "Borrador de alerta")[-1].data["parallel"] is True
+
+
+def test_prefetched_alert_is_discarded_when_model_disagrees():
+    client = FakeMeta(
+        opinion=LLMOpinion(status=VerdictStatus.contradicho, evidence_ids=["EV-01"], claims=[], reason="No."),
+    )
+    c = make(client)
+    run = c.run(text="Jirón Progreso inundado")
+    # el desacuerdo deja el reporte en revisión: ya no hay zona confirmada y no se usa el borrador
+    assert run.verdict.needs_review
+    assert run.alert is None
+    assert not events_with(c, "estratega", "Borrador de alerta para")
+
+
+def test_bulletin_is_read_in_background_from_the_start():
+    c = make(FakeMeta())
+    c.run(text="Jirón Progreso inundado")
+    ev = events_with(c, "vigia", "Boletín incorporado")[0]
+    assert ev.data["parallel"] is True
+    msgs = [e.message for e in c.bus.history()]
+    started = msgs.index(next(m for m in msgs if "segundo plano" in m))
+    extracted = msgs.index(next(m for m in msgs if m.startswith("Reporte R-01")))
+    assert started < extracted
+
+
+def test_photo_vision_and_sam_run_in_parallel():
+    client = FakeMeta(parallel_probe=True)
+    c = make(client)
+    c.run(text="Jirón Progreso")
+    client.alert_started.set()
+    run = c.run_photo("R-01", png_bytes())
+    assert client.photo_parallel is True  # las 5 llamadas estaban abiertas a la vez
+    ev = events_with(c, "ojo", "Foto evaluada")[0]
+    assert set(ev.data["calls_ms"]) == {"vision", "water", "person", "house", "vehicle"}
+    assert ev.data["image_size"] == [5, 5]
+    assert run.photo_result.image_size == (5, 5)
+
+
+def test_ungrounded_verifier_explanation_is_discarded_in_trace():
+    client = FakeMeta(
+        opinion=LLMOpinion(
+            status=VerdictStatus.confirmado,
+            evidence_ids=["EV-01"],
+            claims=[EvidenceClaim(evidence_id="EV-01", quote="Cambio de NDWI en Jirón Progreso")],
+            reason="The photo shows water entering the houses.",
+        )
+    )
+    c = make(client)
+    run = c.run(text="Jirón Progreso inundado")
+    assert "entering" not in run.verdict.reason
+    assert "Model explanation discarded" in run.verdict.reason
+    ev = events_with(c, "verificador", "Veredicto")[0]
+    assert ev.data["explanation_grounded"] is False
+    assert "descartada" in ev.message
