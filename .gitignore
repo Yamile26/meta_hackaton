@@ -8,3 +8,4 @@ nota.*
 data/runtime/
 foto.*
 mascara.png
+.claude/settings.local.json
