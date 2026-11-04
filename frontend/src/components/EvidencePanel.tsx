@@ -84,6 +84,7 @@ export function EvidencePanel({ item, photo }: { item: ReportItem | null; photo?
               </div>
             ))}
         </dl>
+        {report.houses_affected != null && <p className="mt-1.5 text-xs text-fg-muted">{S.reportedNote}</p>}
       </div>
 
       {photo}

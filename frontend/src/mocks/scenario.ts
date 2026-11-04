@@ -201,7 +201,7 @@ export const INITIAL_REPORTS: ReportWithVerdict[] = [
       "R-04",
       "En Nuevo Horizonte el agua entró a las casas, necesitamos agua potable.",
       "Water entered homes in Nuevo Horizonte; residents need drinking water.",
-      "Nuevo Horizonte", "need", 2, 8, 11,
+      "Nuevo Horizonte", "need", 2, null, 11,
     ),
     verdict: {
       report_id: "R-04",
