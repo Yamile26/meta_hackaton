@@ -256,7 +256,8 @@ def _elements(desc: Optional[PhotoDescription]) -> list[str]:
         return []
     out = []
     for e in desc.visible_elements[:ELEMENTS_MAX]:
-        s = " ".join(e.split())[:ELEMENT_MAX_CHARS]
+        # salida del modelo que vuelve a entrar a un prompt (resumen de evidencia)
+        s = meta.neutralize_tags(" ".join(e.split())[:ELEMENT_MAX_CHARS])
         if s:
             out.append(s)
     return out

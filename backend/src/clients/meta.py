@@ -65,6 +65,30 @@ log = logging.getLogger("centinela.meta")
 _report_counter = itertools.count(1)
 
 
+# ---------------------------------------------------------------------------
+# Neutralización de etiquetas en datos no confiables
+# ---------------------------------------------------------------------------
+
+# Cualquier "<" que empiece una etiqueta de apertura o cierre ("<reporte>", "</reporte",
+# "< / evidencias>") se cambia por "‹" (U+2039) antes de insertar el texto en un prompt,
+# para que un reporte, un PDF o una salida previa del modelo no pueda cerrar el
+# delimitador <reporte>…</reporte> y hacerse pasar por instrucciones. El ">" que cierra
+# esa etiqueta pasa a "›". Comparaciones como "NDWI < 0.03" no empiezan etiqueta y no se tocan.
+_TAG_OPEN = re.compile(r"<(\s*/?\s*[A-Za-zÀ-ÿ!?][^<>]*)(>?)")
+
+
+def neutralize_tags(text: str) -> str:
+    """Texto no confiable sin etiquetas de apertura/cierre que puedan romper los delimitadores."""
+    if not text:
+        return text
+    return _TAG_OPEN.sub(lambda m: "‹" + m.group(1) + ("›" if m.group(2) else ""), text)
+
+
+def neutralize_json(data: Any) -> str:
+    """json.dumps de datos no confiables con las etiquetas neutralizadas (sigue siendo JSON válido)."""
+    return neutralize_tags(json.dumps(data, ensure_ascii=False))
+
+
 class MetaAPIError(RuntimeError):
     """Error al llamar a la API de Meta. El mensaje nunca incluye la clave.
 
@@ -84,8 +108,12 @@ class MetaAPIError(RuntimeError):
 # Configuración
 # ---------------------------------------------------------------------------
 
+# Únicas variables que se leen de .env; cualquier otra línea se ignora.
+DOTENV_KEYS = frozenset({"MODEL_API_KEY", "ASR_MODEL", "FRONTEND_ORIGIN", "LATENCY_TUNING"})
+
+
 def _load_dotenv() -> None:
-    """Carga MODEL_API_KEY/ASR_MODEL desde .env de la raíz si no están ya en el entorno."""
+    """Carga solo DOTENV_KEYS desde el .env de la raíz si no están ya en el entorno."""
     env_path = Path(__file__).resolve().parents[3] / ".env"
     if not env_path.is_file():
         return
@@ -94,7 +122,10 @@ def _load_dotenv() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip()
+        if key not in DOTENV_KEYS:
+            continue
+        os.environ.setdefault(key, value.strip().strip('"').strip("'"))
 
 
 def _api_key() -> str:
@@ -388,7 +419,7 @@ def extract_report(
         model=TEXT_MODEL,
         messages=[
             {"role": "system", "content": _extract_system_prompt(places)},
-            {"role": "user", "content": f"<reporte>\n{text}\n</reporte>"},
+            {"role": "user", "content": f"<reporte>\n{neutralize_tags(text)}\n</reporte>"},
         ],
         response_format=ReportExtraction,
         temperature=TEMPERATURE,
@@ -526,8 +557,8 @@ def verify_with_llm(report: Report, evidence: list[Evidence], *, client: Any = N
     )
     evidence_data = [e.model_dump(mode="json", exclude={"source_path"}) for e in evidence]
     user = (
-        f"<reporte>\n{json.dumps(report_data, ensure_ascii=False)}\n</reporte>\n"
-        f"<evidencias>\n{json.dumps(evidence_data, ensure_ascii=False)}\n</evidencias>"
+        f"<reporte>\n{neutralize_json(report_data)}\n</reporte>\n"
+        f"<evidencias>\n{neutralize_json(evidence_data)}\n</evidencias>"
     )
     parsed = parse_structured(
         client,
@@ -571,7 +602,7 @@ def draft_alert_text(facts: dict[str, Any], *, client: Any = None) -> AlertText:
         model=TEXT_MODEL,
         messages=[
             {"role": "system", "content": _ALERT_SYSTEM},
-            {"role": "user", "content": f"<hechos>\n{json.dumps(public, ensure_ascii=False)}\n</hechos>"},
+            {"role": "user", "content": f"<hechos>\n{neutralize_json(public)}\n</hechos>"},
         ],
         response_format=AlertText,
         temperature=TEMPERATURE,

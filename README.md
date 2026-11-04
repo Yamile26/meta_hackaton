@@ -110,7 +110,7 @@ Measured end-to-end latency with the real API: about **42 seconds per voice repo
 # Backend (from the repository root)
 python -m venv .venv
 .venv\Scripts\Activate.ps1            # Windows PowerShell; on macOS/Linux: source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r backend/requirements.txt       # runtime, exact versions
 cp .env.example .env                    # then set MODEL_API_KEY (or export it in your shell)
 uvicorn src.api:app --app-dir backend --port 8000
 
@@ -135,7 +135,9 @@ npm run dev                             # http://localhost:5173
 **Tests and smoke checks**
 
 ```bash
+pip install -r backend/requirements-dev.txt   # adds pytest, httpx and ruff
 python -m pytest backend/tests -q       # unit tests, use a fake model client, no API calls
+python -m ruff check backend scripts    # lint
 python scripts/eval_verifier.py         # deterministic evaluation cases (rewrites docs/evaluation.md; add --no-write to only print)
 python scripts/smoke_meta.py text       # real call: Muse Spark structured output on a sample report (reads MODEL_API_KEY from the shell only, not from .env)
 python scripts/smoke_pipeline.py nota.wav       # real calls: full pipeline on a WAV file (add --no-orchestrator to skip tool calling)

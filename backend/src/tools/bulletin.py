@@ -105,7 +105,8 @@ def mentioned_in(place: Place, text: str) -> bool:
 def _clean(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
-    s = " ".join(value.split())[:FREE_TEXT_MAX]
+    # texto del PDF leído por el modelo: vuelve a entrar a prompts dentro del resumen
+    s = meta.neutralize_tags(" ".join(value.split())[:FREE_TEXT_MAX])
     return s or None
 
 

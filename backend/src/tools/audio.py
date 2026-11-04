@@ -8,6 +8,7 @@ from typing import Optional
 
 ALLOWED_FORMATS = ("webm", "m4a", "mp3", "wav")
 FFMPEG_TIMEOUT_S = 60
+MAX_SECONDS = 600
 
 
 class AudioError(ValueError):
@@ -30,7 +31,11 @@ def sniff_format(head: bytes) -> Optional[str]:
 def ffmpeg_command(ffmpeg: str, src: Path, dst: Path) -> list[str]:
     return [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+        # solo archivos locales (nada de http/concat/pipe que una entrada maliciosa pueda pedir)
+        "-protocol_whitelist", "file",
         "-i", str(src),
+        # tope de 10 min de salida, el máximo que acepta el ASR
+        "-t", str(MAX_SECONDS),
         "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", "-map_metadata", "-1",
         str(dst),
     ]

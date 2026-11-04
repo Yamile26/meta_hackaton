@@ -113,10 +113,11 @@ class EventBus:
             except RuntimeError:  # loop cerrado
                 self.unsubscribe(q)
 
-    def subscribe(self) -> asyncio.Queue[AgentEvent]:
-        """Debe llamarse desde un loop asyncio. La cola empieza con el historial."""
+    def subscribe(self, maxsize: int | None = None) -> asyncio.Queue[AgentEvent]:
+        """Debe llamarse desde un loop asyncio. La cola (acotada) empieza con el historial."""
         loop = asyncio.get_running_loop()
-        q: asyncio.Queue[AgentEvent] = asyncio.Queue(maxsize=self._queue_size)
+        size = maxsize if maxsize and maxsize > 0 else self._queue_size
+        q: asyncio.Queue[AgentEvent] = asyncio.Queue(maxsize=size)
         with self._lock:
             for ev in self._history:
                 _put_nowait(q, ev)
@@ -129,10 +130,18 @@ class EventBus:
 
 
 def _put_nowait(q: asyncio.Queue[AgentEvent], ev: AgentEvent) -> None:
+    """Cola llena (cliente lento): se descarta el evento más antiguo; la cola nunca crece."""
     try:
         q.put_nowait(ev)
     except asyncio.QueueFull:
-        pass  # cliente lento: se descarta el evento
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            q.put_nowait(ev)
+        except asyncio.QueueFull:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +456,13 @@ class Centinela:
             ev_id = self._new_evidence_ids(1)[0]
             # reserva el id mientras se analiza
             self.evidence[ev_id] = Evidence(id=ev_id, type="photo", place_name=r.place_name, summary="Analizando foto…")
-        fmt = photo_eval.validate_photo(run.photo)
+        try:
+            fmt = photo_eval.validate_photo(run.photo)
+        except photo_eval.PhotoError:
+            # no dejar el marcador "Analizando foto…" como evidencia huérfana
+            with self._lock:
+                self.evidence.pop(ev_id, None)
+            raise
         self.emit("ojo", f"Analizando foto de {r.id} con Spark (visión) y SAM 3.1 en paralelo.")
         source = f"photos/{ev_id}.{fmt}"
         t0 = time.perf_counter()
@@ -721,7 +736,7 @@ class Centinela:
             messages.append(
                 {
                     "role": "assistant",
-                    "content": msg.content or "",
+                    "content": meta.neutralize_tags(msg.content or ""),
                     "tool_calls": [
                         {
                             "id": tc.id,
@@ -736,7 +751,7 @@ class Centinela:
                 self.emit("orquestador", f"El modelo llama a {tc.function.name}.", {"ms": turn_ms})
                 result = self._call_tool(run, tc.function.name, tc.function.arguments)
                 messages.append(
-                    {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result, ensure_ascii=False)}
+                    {"role": "tool", "tool_call_id": tc.id, "content": meta.neutralize_json(result)}
                 )
 
     def run(

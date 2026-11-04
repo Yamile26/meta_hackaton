@@ -20,10 +20,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.agent import Centinela, PipelineError
+from src.clients import meta
 from src.clients.meta import validate_wav
 from src.models.schemas import AgentEvent, AlertDraft, Evidence, Report
 from src.tools import alert as alert_tools
@@ -39,6 +41,10 @@ MAX_AUDIO_BYTES = 10 * 1024 * 1024
 CHUNK = 1024 * 1024
 SSE_PING_S = 15.0
 DEFAULT_ORIGIN = "http://localhost:5173"
+# /stream: eventos en cola por cliente (supera el historial de 500 del EventBus; si un
+# cliente lento la llena se descartan los más antiguos) y conexiones simultáneas máximas.
+STREAM_QUEUE_MAX = 600
+MAX_STREAMS = 20
 
 
 class ApiError(Exception):
@@ -51,14 +57,30 @@ class ApiError(Exception):
 # ---------------------------------------------------------------------------
 
 class RateLimiter:
+    """Ventana deslizante por clave. Cada `window_s` se borran las IPs sin peticiones
+    recientes, para que el diccionario no crezca sin límite."""
+
     def __init__(self, limit: int, window_s: float = 60.0, clock=time.monotonic) -> None:
         self.limit, self.window, self.clock = limit, window_s, clock
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._last_sweep = clock()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._hits)
+
+    def _sweep(self, now: float) -> None:
+        stale = [k for k, h in self._hits.items() if not h or now - h[-1] >= self.window]
+        for k in stale:
+            del self._hits[k]
+        self._last_sweep = now
 
     def allow(self, key: str) -> bool:
         now = self.clock()
         with self._lock:
+            if now - self._last_sweep >= self.window:
+                self._sweep(now)
             hits = self._hits[key]
             while hits and now - hits[0] >= self.window:
                 hits.popleft()
@@ -107,12 +129,22 @@ def create_app(
     rate_limit: int = 120,
     expensive_rate_limit: int = 6,
     ffmpeg: Optional[str] = None,
+    max_streams: int = MAX_STREAMS,
 ) -> FastAPI:
+    if frontend_origin is None:
+        meta._load_dotenv()
+        frontend_origin = os.environ.get("FRONTEND_ORIGIN", DEFAULT_ORIGIN)
+    # CORS: un único origen explícito; vacío o comodín se rechaza al arrancar
+    origin = (frontend_origin or "").strip()
+    if not origin or "*" in origin:
+        raise RuntimeError("FRONTEND_ORIGIN debe ser un origen explícito (no vacío ni '*')")
     app = FastAPI(title="Centinela", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.centinela = centinela
     general = RateLimiter(rate_limit)
     costly = RateLimiter(expensive_rate_limit)
-    origin = frontend_origin or os.environ.get("FRONTEND_ORIGIN", DEFAULT_ORIGIN)
+    app.state.limiters = (general, costly)
+    streams = {"open": 0}
+    streams_lock = threading.Lock()
 
     def get_centinela() -> Centinela:
         if app.state.centinela is None:
@@ -270,9 +302,21 @@ def create_app(
     @app.get("/stream")
     async def stream(request: Request) -> StreamingResponse:
         bus = get_centinela().bus
+        with streams_lock:
+            if streams["open"] >= max_streams:
+                raise ApiError(503, "demasiadas conexiones de stream")
+            streams["open"] += 1
+        released = threading.Event()
+
+        def release() -> None:
+            # una sola vez, sea por fin del generador o por la tarea de fondo
+            if not released.is_set():
+                released.set()
+                with streams_lock:
+                    streams["open"] -= 1
 
         async def events() -> AsyncIterator[str]:
-            q = bus.subscribe()
+            q = bus.subscribe(maxsize=STREAM_QUEUE_MAX)
             try:
                 while not await request.is_disconnected():
                     try:
@@ -282,11 +326,13 @@ def create_app(
                         yield ": ping\n\n"
             finally:
                 bus.unsubscribe(q)
+                release()
 
         return StreamingResponse(
             events(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            background=BackgroundTask(release),
         )
 
     @app.post("/alerts/draft", response_model=AlertDraft)

@@ -1,0 +1,5 @@
+# Desarrollo: tests y lint (versiones exactas del .venv probado)
+-r requirements.txt
+pytest==9.2.0
+httpx==0.28.1  # lo usa fastapi.testclient
+ruff==0.17.3
