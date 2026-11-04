@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { AlertTriangle, ChevronDown, Map as MapIcon } from "lucide-react";
 import { LngLatBounds, Map as MLMap, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -274,24 +274,28 @@ export function MapView({ reports, zones, flood, selectedId, onSelect }: Props) 
 
       {!ready && !mapError && (
         <div className="absolute inset-0 grid place-items-center bg-bg/70">
-          <LoadingState label={S.loadingMap} />
+          <LoadingState label={S.loadingMap} className="rounded-full border border-line bg-surface px-4 py-2" />
         </div>
       )}
       {mapError && (
         <div className="absolute inset-0 grid place-items-center bg-bg/90 p-6 text-center">
-          <div className="space-y-1">
+          <div className="flex flex-col items-center gap-2">
+            <span className="mb-1 grid size-11 place-items-center rounded-full bg-[#fdf3f1] text-bad-ink" aria-hidden>
+              <MapIcon className="size-5" />
+            </span>
             <p className="font-display text-lg text-forest">{mapError}</p>
             <p className="text-sm text-fg-muted">{S.mapErrorHint}</p>
           </div>
         </div>
       )}
       {ready && located === 0 && (
-        <div className="pointer-events-none absolute inset-x-0 top-4 mx-auto w-fit rounded-full bg-surface px-4 py-1.5 text-sm text-fg-muted">
+        <div className="pointer-events-none absolute inset-x-0 top-4 mx-auto w-fit rounded-full border border-line bg-surface px-4 py-1.5 text-sm text-fg-muted">
           {S.noLocatedReports}
         </div>
       )}
       {ready && (flood.status === "error" || zones.status === "error") && (
-        <div className="absolute top-4 left-4 rounded-lg bg-surface px-3 py-1.5 text-sm text-bad-ink">
+        <div role="status" className="absolute top-4 left-4 flex items-center gap-1.5 rounded-lg border border-bad/25 bg-[#fdf3f1] px-3 py-1.5 text-sm text-bad-ink">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
           {flood.status === "error" ? S.floodLayerUnavailable : S.zonesUnavailable}
         </div>
       )}

@@ -234,7 +234,11 @@
   box-shadow: 0 1px 3px rgba(11, 31, 23, 0.35);
   transition:
     background-color 600ms ease,
-    box-shadow 200ms ease;
+    box-shadow 200ms ease,
+    transform 150ms ease-out;
+}
+.report-marker:hover .dot {
+  transform: scale(1.15);
 }
 .report-marker .dot svg {
   width: 12px;
