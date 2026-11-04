@@ -7,11 +7,11 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center justify-between gap-2 px-6 pt-5 pb-3", className)} {...props} />;
+  return <div className={cn("flex min-h-14 items-center justify-between gap-2 px-6 pt-4 pb-3", className)} {...props} />;
 }
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn("label-caps", className)} {...props} />;
+  return <h2 className={cn("text-[15px] leading-5 font-semibold text-forest", className)} {...props} />;
 }
 
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

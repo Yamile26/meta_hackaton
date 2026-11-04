@@ -130,13 +130,12 @@
   }
 }
 
-/* Small uppercase labels with tracking (only for labels, never body text). */
+/* Small section labels: sentence case, semibold, muted (only for labels, never body text). */
 @utility label-caps {
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 18px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--color-fg-muted);
 }
 

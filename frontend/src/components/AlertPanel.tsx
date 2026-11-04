@@ -63,7 +63,7 @@ export function ZoneAndAlert({ zones, selectedReportId, onRetryZones }: Props) {
 
   return (
     <>
-      <Card>
+      <Card className={zone ? "shadow-[inset_0_3px_0_var(--color-accent)]" : undefined}>
         <CardHeader>
           <CardTitle>{S.priorityZone}</CardTitle>
           {zone && <span className="text-xs tabular-nums text-fg-muted">{zone.id}</span>}
@@ -80,12 +80,12 @@ export function ZoneAndAlert({ zones, selectedReportId, onRetryZones }: Props) {
               <div className="flex items-end justify-between gap-4">
                 <h3 className="font-display text-2xl font-semibold tracking-tight text-forest">{zone.name}</h3>
                 <div className="text-right">
-                  <p className="font-display text-3xl leading-none font-semibold tabular-nums text-accent-ink">{zone.score.toFixed(2)}</p>
+                  <p className="font-display text-4xl leading-none font-semibold tabular-nums text-accent-ink">{zone.score.toFixed(2)}</p>
                   <p className="label-caps mt-1">{S.priority}</p>
                 </div>
               </div>
               {/* Priority bar: the ochre accent */}
-              <div className="h-1.5 overflow-hidden rounded-full bg-subtle" aria-hidden>
+              <div className="h-2 overflow-hidden rounded-full bg-subtle" aria-hidden>
                 <div className="h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${Math.round(zone.score * 100)}%` }} />
               </div>
               <dl className="grid grid-cols-2 gap-6 text-sm">

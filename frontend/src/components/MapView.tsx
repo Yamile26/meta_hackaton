@@ -312,7 +312,7 @@ function Legend({ open, onToggle }: { open: boolean; onToggle: () => void }) {
         aria-controls="map-legend"
         className="flex w-full items-center justify-between rounded-xl px-3 py-2"
       >
-        <span className="label-caps !text-[10px]">{S.legend}</span>
+        <span className="label-caps !text-xs">{S.legend}</span>
         <ChevronDown className={cn("size-3.5 text-fg-muted transition-transform", open && "rotate-180")} aria-hidden />
       </button>
       {open && (

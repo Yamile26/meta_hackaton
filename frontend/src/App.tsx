@@ -82,7 +82,7 @@ function CommandCenter({ onHome }: { onHome: () => void }) {
         <Card className="flex min-h-[480px] flex-col overflow-hidden lg:min-h-0">
           <CardHeader>
             <CardTitle>{S.reports}</CardTitle>
-            <span className="text-xs tabular-nums text-fg-muted">{items.length}</span>
+            <span className="rounded-full bg-subtle px-2 text-xs leading-5 font-semibold tabular-nums text-forest">{items.length}</span>
           </CardHeader>
           <div className="space-y-2 px-6 pb-4">
             <VoiceRecorder onReport={c.addPending} />
