@@ -38,7 +38,7 @@ export const S = {
       { title: "A person approves", text: "Centinela drafts alerts. An operator reviews and sends them." },
     ],
     modelsLabel: "Meta models integrated",
-    models: ["Muse Spark", "Muse Voice Transcribe"],
+    models: ["Muse Spark", "Muse Voice Transcribe", "SAM 3.1"],
     footer: "Demo with simulated data · Built for the Meta Global AI Developer Hackathon",
   },
 
