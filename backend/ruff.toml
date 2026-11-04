@@ -1,0 +1,4 @@
+[lint]
+ignore = [
+    "B008",  # patrón estándar de FastAPI: File(...) / Depends(...) como valor por defecto
+]

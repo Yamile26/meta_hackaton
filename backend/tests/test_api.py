@@ -4,6 +4,7 @@ import wave
 import pytest
 from fakes import FakeMeta, fake_transcriber
 from fastapi.testclient import TestClient
+
 from src.agent import Centinela
 from src.api import RateLimiter, create_app, sse_format
 from src.models.schemas import AgentEvent

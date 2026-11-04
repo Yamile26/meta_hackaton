@@ -4,6 +4,7 @@ import logging
 
 import pytest
 from fakes import FakeMeta, fake_transcriber, length_error, status_error
+
 from src.agent import Centinela, PipelineError
 from src.clients import meta
 from src.clients.meta import AlertText, LLMOpinion, ReportExtraction, extract_report
@@ -111,6 +112,7 @@ def test_latency_tuning_values(monkeypatch, value, expected):
 def test_latency_tuning_off_applies_to_every_call(monkeypatch):
     monkeypatch.setenv("LATENCY_TUNING", "off")
     from fakes import tool_call
+
     from src.agent import AUDIO_STEPS
 
     client = FakeMeta(turns=[[tool_call(s)] for s in AUDIO_STEPS])
@@ -158,6 +160,7 @@ def test_api_returns_short_error_without_diagnostics(tmp_path):
     import wave
 
     from fastapi.testclient import TestClient
+
     from src.api import create_app
 
     if shutil.which("ffmpeg") is None:
@@ -201,6 +204,7 @@ def test_alert_falls_back_to_template_after_two_failures():
 
 def test_orchestrator_rejected_param_retries_with_defaults():
     from fakes import tool_call
+
     from src.agent import AUDIO_STEPS
 
     client = FakeMeta(turns=[[tool_call(s)] for s in AUDIO_STEPS], create_errors=[status_error(400)])

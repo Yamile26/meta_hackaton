@@ -3,6 +3,7 @@ import json
 
 import pytest
 from fakes import FakeMeta, fake_transcriber, tool_call
+
 from src.agent import STEPS, Centinela, EventBus, PipelineError
 from src.clients.meta import LLMOpinion, ReportExtraction
 from src.models.schemas import AgentEvent, ClaimType, VerdictStatus
@@ -148,6 +149,7 @@ def test_invented_number_in_english_translation_falls_back_to_template():
 # --- boletín (Vigía) y foto (Ojo) ---------------------------------------------------
 
 from fakes import png_bytes
+
 from src.agent import AUDIO_STEPS, PHOTO_STEPS
 from src.tools.bulletin import BulletinExtraction, BulletinZone
 from src.tools.photo_eval import PhotoError

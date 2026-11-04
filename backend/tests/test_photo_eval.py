@@ -4,6 +4,7 @@ import zlib
 import numpy as np
 import pytest
 from fakes import FakeMeta, MASK_5x5, png_bytes, sam_text
+
 from src.tools.photo_eval import (
     COLORS,
     Instance,

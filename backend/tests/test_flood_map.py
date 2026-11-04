@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from src.models.schemas import Place
 from src.tools.flood_map import (
     ChangeStats,

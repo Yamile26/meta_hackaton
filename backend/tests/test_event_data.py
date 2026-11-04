@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from src.models.schemas import ClaimType, Place, Report, VerdictStatus
 from src.tools import flood_map
 from src.tools.event_data import (

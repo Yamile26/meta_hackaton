@@ -1,6 +1,7 @@
 
 import pytest
 from fakes import FakeMeta
+
 from src.tools.bulletin import (
     BulletinExtraction,
     BulletinZone,

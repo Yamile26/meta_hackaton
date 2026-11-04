@@ -200,14 +200,14 @@ def length_error(completion_tokens: int = 8192, reasoning_tokens: int = 8100) ->
 def status_error(status: int = 400, message: str = "unsupported parameter: reasoning_effort",
                  param: str | None = "reasoning_effort") -> BaseException:
     """Error HTTP del SDK (400 = parámetro rechazado, 401 = clave, ...)."""
-    import httpx2
+    import httpx
     import openai
 
     cls = {400: openai.BadRequestError, 401: openai.AuthenticationError, 422: openai.UnprocessableEntityError,
            429: openai.RateLimitError, 500: openai.InternalServerError}.get(status, openai.APIStatusError)
-    response = httpx2.Response(
+    response = httpx.Response(
         status,
-        request=httpx2.Request("POST", "https://api.meta.ai/v1/chat/completions"),
+        request=httpx.Request("POST", "https://api.meta.ai/v1/chat/completions"),
         headers={"x-request-id": "req_test_123"},
     )
     body = {"error": {"message": message, "param": param, "code": "invalid_parameter"}}

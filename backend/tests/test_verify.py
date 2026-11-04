@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+
 from src.models.schemas import ClaimType, Evidence, Report, VerdictStatus
 from src.tools.verify import classify_evidence, decide_verdict, reconcile, verify_report
 

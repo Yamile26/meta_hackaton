@@ -5,6 +5,7 @@ from datetime import UTC
 
 import pytest
 from fakes import FakeMeta, fake_transcriber
+
 from src.agent import Centinela
 from src.clients import meta
 from src.clients.meta import ReportExtraction, build_report, extract_report
@@ -182,6 +183,7 @@ def test_created_at_is_timezone_aware_utc():
 
 def test_api_reports_created_at_with_zone():
     from fastapi.testclient import TestClient
+
     from src.api import create_app
 
     c = Centinela(client=FakeMeta(), transcriber=fake_transcriber())

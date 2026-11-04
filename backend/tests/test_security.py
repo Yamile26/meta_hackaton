@@ -7,6 +7,7 @@ import os
 import pytest
 from fakes import FakeMeta, fake_transcriber, tool_call
 from fastapi.testclient import TestClient
+
 from src.agent import Centinela, EventBus, RunState
 from src.api import RateLimiter, create_app
 from src.clients import meta

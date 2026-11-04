@@ -3,6 +3,7 @@ import wave
 from types import SimpleNamespace
 
 import pytest
+
 from src.clients.meta import (
     LLMOpinion,
     ReportExtraction,
