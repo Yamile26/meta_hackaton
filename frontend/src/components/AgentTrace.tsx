@@ -8,23 +8,42 @@ import { cn, formatTime } from "@/lib/utils";
 type StepState = "idle" | "active" | "done";
 
 /** State of each step in the most recent run. */
+/**
+ * Run boundaries. Mocks mark them with data.run = "start" | "end". The backend's
+ * orchestrator opens a run with data.kind ("audio" | "texto" | "foto") and closes it
+ * with data.steps_ms. The Voice events come BEFORE the first Lookout event, so a run
+ * must start at the orchestrator, never at Lookout.
+ */
+const isRunStart = (ev: AgentEvent) =>
+  ev.data?.run === "start" || (ev.agent === "orquestador" && typeof ev.data?.kind === "string");
+const isRunEnd = (ev: AgentEvent) =>
+  ev.data?.run === "end" || (ev.agent === "orquestador" && ev.data?.steps_ms != null);
+/** Backend "Transcripción lista." carries the transcript: the Voice step is finished. */
+const finishesStep = (ev: AgentEvent) => ev.agent === "voz" && ev.data?.transcript != null;
+
 function stepStates(events: AgentEvent[]): Record<AgentName, StepState> {
   const states = Object.fromEntries(PIPELINE.map((p) => [p.agent, "idle"])) as Record<AgentName, StepState>;
   let start = -1;
   events.forEach((ev, i) => {
-    const prev = events[i - 1];
-    if (ev.data?.run === "start" || (ev.agent === "vigia" && prev?.agent !== "vigia" && prev?.data?.run !== "start")) start = i;
+    if (isRunStart(ev)) start = i;
   });
+  // Fallback for streams without a start marker: the first Lookout event of the last burst.
+  if (start === -1) {
+    events.forEach((ev, i) => {
+      if (ev.agent === "vigia" && events[i - 1]?.agent !== "vigia") start = i;
+    });
+  }
   if (start === -1) return states;
   const run = events.slice(start);
-  const ended = run.some((ev) => ev.data?.run === "end");
-  let last: AgentName | null = null;
+  const ended = run.some(isRunEnd);
+  let last: AgentEvent | null = null;
   for (const ev of run) {
     if (ev.agent === "orquestador") continue;
     states[ev.agent] = "done";
-    last = ev.agent;
+    last = ev;
   }
-  if (!ended && last) states[last] = "active";
+  // Any later event from another agent already marked earlier steps done above.
+  if (!ended && last && !finishesStep(last)) states[last.agent] = "active";
   return states;
 }
 
