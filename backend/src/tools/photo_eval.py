@@ -27,7 +27,7 @@ import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel
@@ -81,23 +81,23 @@ class Segmentation:
     concept: str
     instances: list[Instance] = field(default_factory=list)
     error: bool = False
-    ms: Optional[int] = None
+    ms: int | None = None
 
     @property
-    def count(self) -> Optional[int]:
+    def count(self) -> int | None:
         return None if self.error else len(self.instances)
 
 
 @dataclass
 class PhotoResult:
     evidence: Evidence
-    counts: dict[str, Optional[int]]
-    water_fraction: Optional[float]
-    description: Optional[PhotoDescription]
+    counts: dict[str, int | None]
+    water_fraction: float | None
+    description: PhotoDescription | None
     discrepancy: bool
-    mask_png: Optional[bytes]
-    image_size: Optional[tuple[int, int]] = None  # (w, h)
-    ms: dict[str, Optional[int]] = field(default_factory=dict)
+    mask_png: bytes | None
+    image_size: tuple[int, int] | None = None  # (w, h)
+    ms: dict[str, int | None] = field(default_factory=dict)
 
 
 class PhotoError(ValueError):
@@ -108,7 +108,7 @@ class PhotoError(ValueError):
 # Validación
 # ---------------------------------------------------------------------------
 
-def sniff_image(head: bytes) -> Optional[str]:
+def sniff_image(head: bytes) -> str | None:
     if head[:3] == b"\xff\xd8\xff":
         return "jpeg"
     if head[:8] == b"\x89PNG\r\n\x1a\n":
@@ -160,7 +160,11 @@ def _fit(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 def parse_sam_output(text: str) -> list[Instance]:
     """Salida de texto de SAM 3.1 -> instancias con máscara local y posición (x1, y1)."""
-    from meta_sam_parser import CompletedOutcome, decode_mask_to_raster, image_segmentation_format
+    from meta_sam_parser import (
+        CompletedOutcome,
+        decode_mask_to_raster,
+        image_segmentation_format,
+    )
 
     if not text.strip():
         return []
@@ -181,7 +185,7 @@ def parse_sam_output(text: str) -> list[Instance]:
     return out
 
 
-def image_shape(segs: dict[str, Segmentation]) -> Optional[tuple[int, int]]:
+def image_shape(segs: dict[str, Segmentation]) -> tuple[int, int] | None:
     """(alto, ancho) de la imagen según SAM; None si no hay ninguna instancia."""
     for key in DRAW_ORDER:
         seg = segs.get(key)
@@ -242,7 +246,7 @@ def encode_png(rgba: np.ndarray) -> bytes:
     )
 
 
-def is_discrepant(level: Optional[str], water_fraction: Optional[float]) -> bool:
+def is_discrepant(level: str | None, water_fraction: float | None) -> bool:
     """Spark y SAM se contradicen sobre la presencia de agua."""
     if level is None or water_fraction is None or level == "incierto":
         return False
@@ -251,7 +255,7 @@ def is_discrepant(level: Optional[str], water_fraction: Optional[float]) -> bool
     return spark_sees_water != sam_sees_water
 
 
-def _elements(desc: Optional[PhotoDescription]) -> list[str]:
+def _elements(desc: PhotoDescription | None) -> list[str]:
     if desc is None:
         return []
     out = []
@@ -266,11 +270,11 @@ def _elements(desc: Optional[PhotoDescription]) -> list[str]:
 def build_evidence(
     evidence_id: str,
     report_id: str,
-    place_name: Optional[str],
+    place_name: str | None,
     segs: dict[str, Segmentation],
-    desc: Optional[PhotoDescription],
-    source_path: Optional[str] = None,
-) -> tuple[Evidence, Optional[float], bool]:
+    desc: PhotoDescription | None,
+    source_path: str | None = None,
+) -> tuple[Evidence, float | None, bool]:
     shape = image_shape(segs)
     water = segs.get("water")
     if water is None or water.error:
@@ -360,19 +364,19 @@ def segment(url: str, concept: str, *, client: Any) -> list[Instance]:
             ],
         )
         text = resp.output_text or ""
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         d = {"label": f"SAM '{concept}'", **meta.diagnose(exc)}
         meta.log.warning("Meta SAM '%s' falló: %s", concept, d)
         raise meta.MetaAPIError(f"Fallo en SAM ({type(exc).__name__})", d) from exc
     try:
         return parse_sam_output(text)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         d = {"label": f"SAM '{concept}'", **meta.diagnose(exc), "output_chars": len(text)}
         meta.log.warning("Salida de SAM '%s' ilegible: %s", concept, d)
         raise meta.MetaAPIError("Salida de SAM ilegible", d) from exc
 
 
-def _timed(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, Optional[Exception], int]:
+def _timed(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, Exception | None, int]:
     t0 = time.perf_counter()
     try:
         return fn(*args, **kwargs), None, int((time.perf_counter() - t0) * 1000)
@@ -385,9 +389,9 @@ def evaluate_photo(
     *,
     evidence_id: str,
     report_id: str,
-    place_name: Optional[str],
+    place_name: str | None,
     client: Any,
-    source_path: Optional[str] = None,
+    source_path: str | None = None,
 ) -> PhotoResult:
     """Spark visión y los 4 conceptos de SAM van en paralelo (no dependen entre sí)."""
     fmt = validate_photo(data)

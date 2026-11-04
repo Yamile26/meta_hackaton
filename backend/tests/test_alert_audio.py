@@ -2,10 +2,15 @@ import shutil
 import wave
 
 import pytest
-
 from src.clients.meta import validate_wav
 from src.models.schemas import ClaimType, Report, Verdict, VerdictStatus, Zone
-from src.tools.alert import NoEvidenceError, alert_facts, make_draft, template_text, text_is_safe
+from src.tools.alert import (
+    NoEvidenceError,
+    alert_facts,
+    make_draft,
+    template_text,
+    text_is_safe,
+)
 from src.tools.audio import AudioError, convert_to_wav, ffmpeg_command, sniff_format
 
 ZONE = Zone(id="Z-01", name="Jirón Progreso", report_ids=["R-01", "R-02"], flooded_fraction=0.42, exposure=0.8, score=1)

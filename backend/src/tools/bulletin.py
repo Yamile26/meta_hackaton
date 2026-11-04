@@ -15,7 +15,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -43,13 +43,13 @@ HAZARD_LABEL = {
 class BulletinZone(BaseModel):
     place_name: str
     hazard: Hazard
-    time_window: Optional[str]
-    intensity: Optional[Intensity]
+    time_window: str | None
+    intensity: Intensity | None
 
 
 class BulletinExtraction(BaseModel):
-    bulletin_ref: Optional[str]
-    issued_at: Optional[str]
+    bulletin_ref: str | None
+    issued_at: str | None
     zones: list[BulletinZone]
 
 
@@ -85,7 +85,7 @@ def validate_pdf(path: Path) -> bytes:
     return data
 
 
-def pdf_text(path: Path) -> Optional[str]:
+def pdf_text(path: Path) -> str | None:
     """Texto del PDF con pypdf, o None si no se puede extraer (p. ej. PDF escaneado)."""
     try:
         from pypdf import PdfReader
@@ -102,7 +102,7 @@ def mentioned_in(place: Place, text: str) -> bool:
     return any(f" {normalize(n)} " in haystack for n in [place.name, *place.aliases])
 
 
-def _clean(value: Optional[str]) -> Optional[str]:
+def _clean(value: str | None) -> str | None:
     if not value:
         return None
     # texto del PDF leído por el modelo: vuelve a entrar a prompts dentro del resumen
@@ -113,9 +113,9 @@ def _clean(value: Optional[str]) -> Optional[str]:
 def to_evidence(
     extraction: BulletinExtraction,
     places: tuple[Place, ...] | list[Place],
-    text: Optional[str],
+    text: str | None,
     ids: list[str],
-    source_path: Optional[str] = None,
+    source_path: str | None = None,
 ) -> list[Evidence]:
     """Una Evidence por lugar del gazetteer mencionado. `ids` aporta los ids a usar en orden."""
     best: dict[str, BulletinZone] = {}

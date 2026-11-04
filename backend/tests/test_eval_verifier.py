@@ -41,5 +41,5 @@ def test_committed_report_matches_current_logic():
     """docs/evaluation.md debe regenerarse si cambian las reglas o los casos."""
     committed = (ROOT / "docs" / "evaluation.md").read_text(encoding="utf-8")
     fresh = ev.render_markdown(ev.evaluate(ev.load_cases()), today="X")
-    strip = lambda s: [ln for ln in s.splitlines() if not ln.startswith("Generado con")]  # noqa: E731
+    strip = lambda s: [ln for ln in s.splitlines() if not ln.startswith("Generado con")]
     assert strip(committed) == strip(fresh)

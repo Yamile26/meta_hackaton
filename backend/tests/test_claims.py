@@ -1,10 +1,9 @@
 """claim_type físico + asks_for_help, salvaguarda 'need' con hechos físicos, keywords del ASR y created_at UTC."""
 import json
 import wave
-from datetime import timezone
+from datetime import UTC
 
 import pytest
-
 from fakes import FakeMeta, fake_transcriber
 from src.agent import Centinela
 from src.clients import meta
@@ -177,13 +176,12 @@ def test_transcription_keywords_include_ucayali(tmp_path, monkeypatch):
 def test_created_at_is_timezone_aware_utc():
     r = build_report("texto", ext(ClaimType.flood, False), PLACES)
     assert r.created_at.tzinfo is not None
-    assert r.created_at.utcoffset() == timezone.utc.utcoffset(None)
+    assert r.created_at.utcoffset() == UTC.utcoffset(None)
     assert r.model_dump(mode="json")["created_at"].endswith("Z")
 
 
 def test_api_reports_created_at_with_zone():
     from fastapi.testclient import TestClient
-
     from src.api import create_app
 
     c = Centinela(client=FakeMeta(), transcriber=fake_transcriber())

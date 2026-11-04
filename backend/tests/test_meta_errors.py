@@ -3,7 +3,6 @@ import json
 import logging
 
 import pytest
-
 from fakes import FakeMeta, fake_transcriber, length_error, status_error
 from src.agent import Centinela, PipelineError
 from src.clients import meta
@@ -159,7 +158,6 @@ def test_api_returns_short_error_without_diagnostics(tmp_path):
     import wave
 
     from fastapi.testclient import TestClient
-
     from src.api import create_app
 
     if shutil.which("ffmpeg") is None:

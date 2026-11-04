@@ -3,12 +3,11 @@ import wave
 from types import SimpleNamespace
 
 import pytest
-
 from src.clients.meta import (
-    clean_summary,
     LLMOpinion,
     ReportExtraction,
     build_report,
+    clean_summary,
     extract_report,
     sanitize_opinion,
     validate_wav,
@@ -75,7 +74,7 @@ def test_build_report_unknown_place_has_no_coords():
 class FakeClient:
     def __init__(self, parsed):
         self.calls = []
-        parse = lambda **kw: self.calls.append(kw) or SimpleNamespace(  # noqa: E731
+        parse = lambda **kw: self.calls.append(kw) or SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed))]
         )
         self.beta = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))

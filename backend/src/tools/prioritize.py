@@ -11,7 +11,7 @@ score = gravedad x reportes_confirmados x exposición x fracción_inundada
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +28,7 @@ class ZoneSpec(BaseModel):
     place_names: list[str]
     exposure: float = Field(ge=0)
     flooded_fraction: float = Field(ge=0, le=1)
-    geometry: Optional[dict[str, Any]] = None
+    geometry: dict[str, Any] | None = None
 
 
 def is_confirmed(verdict: Verdict) -> bool:

@@ -38,13 +38,22 @@ import re
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from src.clients import meta
-from src.models.schemas import AgentEvent, AlertDraft, ClaimType, Evidence, Report, Verdict, Zone
+from src.models.schemas import (
+    AgentEvent,
+    AlertDraft,
+    ClaimType,
+    Evidence,
+    Report,
+    Verdict,
+    Zone,
+)
 from src.tools import alert as alert_tools
 from src.tools import bulletin as bulletin_tools
 from src.tools import photo_eval
@@ -52,7 +61,12 @@ from src.tools.claims import physical_claims
 from src.tools.event_data import DEFAULT_EVENT_DIR, evidence_for_place, load_event
 from src.tools.gazetteer import load_gazetteer
 from src.tools.prioritize import prioritize
-from src.tools.verify import decide_verdict, explanation_is_grounded, reconcile, reconcile_opinion
+from src.tools.verify import (
+    decide_verdict,
+    explanation_is_grounded,
+    reconcile,
+    reconcile_opinion,
+)
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +93,7 @@ def _ms(t0: float) -> int:
     return int((time.perf_counter() - t0) * 1000)
 
 
-def _timed_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[Any, Optional[Exception], int]:
+def _timed_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[Any, Exception | None, int]:
     """(resultado, excepción, ms). Nunca lanza: para usar en hilos de fondo."""
     t0 = time.perf_counter()
     try:
@@ -148,7 +162,7 @@ def _put_nowait(q: asyncio.Queue[AgentEvent], ev: AgentEvent) -> None:
 # Herramientas expuestas al modelo
 # ---------------------------------------------------------------------------
 
-def _tool(name: str, description: str, properties: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def _tool(name: str, description: str, properties: dict[str, Any] | None = None) -> dict[str, Any]:
     props = properties or {}
     return {
         "type": "function",
@@ -211,15 +225,15 @@ class AlertPrefetch:
 @dataclass
 class RunState:
     steps: tuple[str, ...] = AUDIO_STEPS
-    audio_path: Optional[Path] = None
-    text: Optional[str] = None
-    source_audio: Optional[str] = None
-    photo: Optional[bytes] = None
-    photo_result: Optional[photo_eval.PhotoResult] = None
-    report: Optional[Report] = None
-    verdict: Optional[Verdict] = None
-    alert: Optional[AlertDraft] = None
-    alert_prefetch: Optional[AlertPrefetch] = None
+    audio_path: Path | None = None
+    text: str | None = None
+    source_audio: str | None = None
+    photo: bytes | None = None
+    photo_result: photo_eval.PhotoResult | None = None
+    report: Report | None = None
+    verdict: Verdict | None = None
+    alert: AlertDraft | None = None
+    alert_prefetch: AlertPrefetch | None = None
     done: list[str] = field(default_factory=list)
     steps_ms: dict[str, int] = field(default_factory=dict)
 
@@ -240,22 +254,22 @@ class Centinela:
         self,
         *,
         event_dir: Path = DEFAULT_EVENT_DIR,
-        places: Optional[tuple[Any, ...]] = None,
+        places: tuple[Any, ...] | None = None,
         client: Any = None,
-        transcriber: Optional[Transcriber] = None,
+        transcriber: Transcriber | None = None,
         use_llm: bool = True,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
         max_turns: int = MAX_TURNS,
-        runtime_dir: Optional[Path] = None,
+        runtime_dir: Path | None = None,
     ) -> None:
         self.places = places if places is not None else load_gazetteer()
         self.runtime_dir = Path(
             runtime_dir or os.environ.get("CENTINELA_RUNTIME_DIR") or DEFAULT_RUNTIME_DIR
         )
         self.bulletin_path = Path(event_dir) / BULLETIN_FILE
-        self.bulletin_sha: Optional[str] = None  # boletín ya incorporado
-        self._bulletin_failed: Optional[str] = None  # no reintentar en este proceso
-        self._bulletin_future: Optional[Future] = None
+        self.bulletin_sha: str | None = None  # boletín ya incorporado
+        self._bulletin_failed: str | None = None  # no reintentar en este proceso
+        self._bulletin_future: Future | None = None
         self.masks: dict[str, Path] = {}
         data = load_event(self.places, event_dir)
         self.evidence = {e.id: e for e in data.evidence}
@@ -289,17 +303,17 @@ class Centinela:
             self._client = meta.get_client()
         return self._client
 
-    def emit(self, agent: str, message: str, data: Optional[dict[str, Any]] = None) -> None:
+    def emit(self, agent: str, message: str, data: dict[str, Any] | None = None) -> None:
         self.bus.publish(AgentEvent(agent=agent, message=message, data=data))
 
-    def zone(self, zone_id: str) -> Optional[Zone]:
+    def zone(self, zone_id: str) -> Zone | None:
         return next((z for z in self.zones if z.id == zone_id), None)
 
     def snapshot(self) -> list[tuple[Report, Verdict]]:
         with self._lock:
             return list(self.items)
 
-    def report(self, report_id: str) -> Optional[Report]:
+    def report(self, report_id: str) -> Report | None:
         with self._lock:
             return next((r for r, _ in self.items if r.id == report_id), None)
 
@@ -308,7 +322,7 @@ class Centinela:
         start = max(nums, default=0) + 1
         return [f"EV-{k:02d}" for k in range(start, start + n)]
 
-    def mask_path(self, evidence_id: str) -> Optional[Path]:
+    def mask_path(self, evidence_id: str) -> Path | None:
         p = self.masks.get(evidence_id)
         return p if p is not None and p.is_file() else None
 
@@ -369,7 +383,7 @@ class Centinela:
             "severity": r.severity,
         }
 
-    def _bulletin_pending(self) -> tuple[Optional[str], Optional[str]]:
+    def _bulletin_pending(self) -> tuple[str | None, str | None]:
         """(sha si hay que incorporarlo, motivo para saltarlo)."""
         if not self.bulletin_path.is_file():
             return None, "no hay boletín PDF; se usa el boletín simulado"
@@ -519,7 +533,7 @@ class Centinela:
         items = [(r, v) for r, v in self.items if r.id != report.id]
         return [*items, (report, verdict)]
 
-    def _prefetch_alert(self, report: Report, code_verdict: Verdict) -> Optional[AlertPrefetch]:
+    def _prefetch_alert(self, report: Report, code_verdict: Verdict) -> AlertPrefetch | None:
         """Lanza la redacción de la alerta suponiendo que el modelo coincide con el código."""
         with self._lock:
             items = self._with_item(report, code_verdict)
@@ -585,7 +599,7 @@ class Centinela:
         self.emit("estratega", "Zonas priorizadas.", {"top": top})
         return {"top": top}
 
-    def step_draft(self, run: RunState, zone_id: Optional[str] = None) -> dict[str, Any]:
+    def step_draft(self, run: RunState, zone_id: str | None = None) -> dict[str, Any]:
         if zone_id is None:
             best = next((z for z in self.zones if z.score > 0), None)
             if best is None:
@@ -605,7 +619,7 @@ class Centinela:
 
     # -- alertas (también usadas por la API) -----------------------------------
 
-    def draft_alert(self, zone_id: str, prefetch: Optional[AlertPrefetch] = None) -> AlertDraft:
+    def draft_alert(self, zone_id: str, prefetch: AlertPrefetch | None = None) -> AlertDraft:
         """Lanza KeyError si la zona no existe y NoEvidenceError si no hay confirmados.
 
         Si `prefetch` se lanzó con exactamente los mismos hechos, se usa su texto.
@@ -757,9 +771,9 @@ class Centinela:
     def run(
         self,
         *,
-        audio_path: Optional[Path] = None,
-        text: Optional[str] = None,
-        source_audio: Optional[str] = None,
+        audio_path: Path | None = None,
+        text: str | None = None,
+        source_audio: str | None = None,
     ) -> RunState:
         """Procesa un reporte (audio WAV ya convertido, o texto) de principio a fin."""
         if audio_path is None and not (text and text.strip()):

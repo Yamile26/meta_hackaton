@@ -6,7 +6,6 @@ import json
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from src.models.schemas import Place
 
@@ -40,7 +39,7 @@ def keywords(places: tuple[Place, ...] | list[Place]) -> list[str]:
     return list(seen)
 
 
-def resolve_place(name: Optional[str], places: tuple[Place, ...] | list[Place]) -> Optional[Place]:
+def resolve_place(name: str | None, places: tuple[Place, ...] | list[Place]) -> Place | None:
     """Devuelve el Place cuyo nombre o alias coincide con `name`; si no hay ninguno, None.
 
     Primero busca coincidencia exacta (normalizada) y luego por similitud

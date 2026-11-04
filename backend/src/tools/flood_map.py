@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -48,7 +48,7 @@ def water_mask(ndwi: np.ndarray, threshold: float = WATER_THRESHOLD) -> np.ndarr
 def change_stats(
     ndwi_before: np.ndarray,
     ndwi_after: np.ndarray,
-    region: Optional[np.ndarray] = None,
+    region: np.ndarray | None = None,
     threshold: float = WATER_THRESHOLD,
 ) -> ChangeStats:
     """Compara dos NDWI en la región dada (máscara booleana; None = toda la imagen).
@@ -145,7 +145,7 @@ def place_to_pixel(raster: NdwiRaster, place: Place) -> tuple[int, int]:
 
 
 def water_polygons_geojson(
-    mask: np.ndarray, transform: Any, crs: Any, properties: Optional[dict[str, Any]] = None
+    mask: np.ndarray, transform: Any, crs: Any, properties: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Vectoriza la máscara de agua a un FeatureCollection GeoJSON en EPSG:4326."""
     from rasterio.features import shapes

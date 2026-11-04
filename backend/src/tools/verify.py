@@ -28,7 +28,8 @@ charco aislado no basta para confirmar sin NDWI o boletín.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Literal, Optional
+from collections.abc import Callable
+from typing import Any, Literal
 
 from src.models.schemas import ClaimType, Evidence, Report, Verdict, VerdictStatus
 from src.tools.claims import physical_claims
@@ -91,7 +92,7 @@ def decide_verdict(report: Report, evidence: list[Evidence]) -> Verdict:
     relevant = [e for e in evidence if e.place_name == report.place_name]
     supports = [e for e in relevant if classify_evidence(e) == "supports"]
     contradicts = [e for e in relevant if classify_evidence(e) == "contradicts"]
-    ids = lambda evs: [e.id for e in evs]  # noqa: E731
+    ids = lambda evs: [e.id for e in evs]
 
     if supports and contradicts:
         return Verdict(
@@ -207,8 +208,8 @@ def explanation_is_grounded(reason: str, claims: list[Any], evidence: list[Evide
 
 def reconcile(
     verdict: Verdict,
-    llm_status: Optional[VerdictStatus],
-    llm_reason: Optional[str] = None,
+    llm_status: VerdictStatus | None,
+    llm_reason: str | None = None,
     grounded: bool = False,
 ) -> Verdict:
     """Añade la opinión del modelo. Nunca cambia el status decidido por el código.
@@ -245,7 +246,7 @@ LLMVerifier = Callable[[Report, list[Evidence]], Any]
 
 
 def verify_report(
-    report: Report, evidence: list[Evidence], llm: Optional[LLMVerifier] = None
+    report: Report, evidence: list[Evidence], llm: LLMVerifier | None = None
 ) -> Verdict:
     """Veredicto del código + opinión del modelo (si se pasa `llm`).
 

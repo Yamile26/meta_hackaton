@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from src.models.schemas import ClaimType, Evidence, Report, VerdictStatus
 from src.tools.verify import classify_evidence, decide_verdict, reconcile, verify_report
 
@@ -132,9 +131,9 @@ def test_verify_report_without_llm():
 
 # --- anclaje de la explicación del modelo --------------------------------------------
 
-from types import SimpleNamespace as NS  # noqa: E402
+from types import SimpleNamespace as NS
 
-from src.tools.verify import explanation_is_grounded, reconcile_opinion  # noqa: E402
+from src.tools.verify import explanation_is_grounded, reconcile_opinion
 
 PHOTO_SUMMARY = (
     "Foto de R-01 en Jirón Progreso: agua en 3.5% de la imagen (SAM 3.1); 2 personas, 1 casas, "

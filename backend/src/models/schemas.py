@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -32,25 +32,25 @@ class Place(BaseModel):
 class Report(BaseModel):
     id: str  # R-01
     text: str
-    place_name: Optional[str] = None  # nombre EXACTO del gazetteer, o None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    place_name: str | None = None  # nombre EXACTO del gazetteer, o None
+    lat: float | None = None
+    lon: float | None = None
     claim_type: ClaimType = ClaimType.other  # afirmación FÍSICA principal; need solo si no hay ninguna
     asks_for_help: bool = False  # el reporte pide ayuda o recursos (botes, agua, evacuación...)
-    severity: Optional[int] = Field(default=None, ge=1, le=3)
-    houses_affected: Optional[int] = Field(default=None, ge=0)
-    source_audio: Optional[str] = None
-    summary_en: Optional[str] = None  # resumen de una frase en inglés (extract_report)
+    severity: int | None = Field(default=None, ge=1, le=3)
+    houses_affected: int | None = Field(default=None, ge=0)
+    source_audio: str | None = None
+    summary_en: str | None = None  # resumen de una frase en inglés (extract_report)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Evidence(BaseModel):
     id: str = Field(pattern=r"^EV-\d+$")  # EV-01
     type: Literal["ndwi", "photo", "bulletin"]
-    place_name: Optional[str] = None
+    place_name: str | None = None
     summary: str
-    value: Optional[float] = None  # p. ej. cambio de NDWI
-    source_path: Optional[str] = None
+    value: float | None = None  # p. ej. cambio de NDWI
+    source_path: str | None = None
 
 
 class Verdict(BaseModel):
@@ -58,7 +58,7 @@ class Verdict(BaseModel):
     status: VerdictStatus  # decidido por código
     evidence_ids: list[str] = Field(default_factory=list)
     reason: str
-    llm_status: Optional[VerdictStatus] = None  # lo que opinó el modelo
+    llm_status: VerdictStatus | None = None  # lo que opinó el modelo
     needs_review: bool = False  # True si código y modelo discrepan
 
 
@@ -69,7 +69,7 @@ class Zone(BaseModel):
     flooded_fraction: float = Field(ge=0, le=1)
     exposure: float = Field(ge=0)
     score: float = Field(ge=0)
-    geometry: Optional[dict[str, Any]] = None  # GeoJSON
+    geometry: dict[str, Any] | None = None  # GeoJSON
 
 
 class AgentEvent(BaseModel):
@@ -77,7 +77,7 @@ class AgentEvent(BaseModel):
     ts: datetime = Field(default_factory=datetime.utcnow)
     agent: Literal["vigia", "voz", "ojo", "verificador", "estratega", "orquestador"]
     message: str
-    data: Optional[dict[str, Any]] = None
+    data: dict[str, Any] | None = None
 
 
 class AlertDraft(BaseModel):

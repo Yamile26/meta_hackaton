@@ -1,9 +1,13 @@
 import numpy as np
 import pytest
-
 from src.models.schemas import ClaimType, Place, Report, VerdictStatus
 from src.tools import flood_map
-from src.tools.event_data import DEFAULT_EVENT_DIR, load_event, load_simulated, ndwi_from_rasters
+from src.tools.event_data import (
+    DEFAULT_EVENT_DIR,
+    load_event,
+    load_simulated,
+    ndwi_from_rasters,
+)
 from src.tools.gazetteer import load_gazetteer
 from src.tools.verify import decide_verdict
 

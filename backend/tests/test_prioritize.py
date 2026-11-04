@@ -1,7 +1,12 @@
 import pytest
-
 from src.models.schemas import ClaimType, Report, Verdict, VerdictStatus
-from src.tools.prioritize import ZoneSpec, build_zone, is_confirmed, prioritize, zone_score
+from src.tools.prioritize import (
+    ZoneSpec,
+    build_zone,
+    is_confirmed,
+    prioritize,
+    zone_score,
+)
 
 
 def spec(id="Z-01", place="Jirón Progreso", exposure=0.8, frac=0.5):

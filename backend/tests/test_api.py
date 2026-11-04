@@ -2,9 +2,8 @@ import shutil
 import wave
 
 import pytest
-from fastapi.testclient import TestClient
-
 from fakes import FakeMeta, fake_transcriber
+from fastapi.testclient import TestClient
 from src.agent import Centinela
 from src.api import RateLimiter, create_app, sse_format
 from src.models.schemas import AgentEvent
@@ -136,7 +135,7 @@ def test_sse_format():
 
 # --- foto y máscara -----------------------------------------------------------------
 
-from fakes import png_bytes  # noqa: E402
+from fakes import png_bytes
 
 
 def client_with_report():

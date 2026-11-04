@@ -4,7 +4,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 ALLOWED_FORMATS = ("webm", "m4a", "mp3", "wav")
 FFMPEG_TIMEOUT_S = 60
@@ -15,7 +14,7 @@ class AudioError(ValueError):
     """Audio inválido o conversión fallida. El mensaje es apto para el usuario."""
 
 
-def sniff_format(head: bytes) -> Optional[str]:
+def sniff_format(head: bytes) -> str | None:
     """Detecta el formato por los bytes iniciales (no se confía en extensión ni content-type)."""
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         return "wav"
@@ -41,7 +40,7 @@ def ffmpeg_command(ffmpeg: str, src: Path, dst: Path) -> list[str]:
     ]
 
 
-def convert_to_wav(src: Path, dst: Path, ffmpeg: Optional[str] = None) -> Path:
+def convert_to_wav(src: Path, dst: Path, ffmpeg: str | None = None) -> Path:
     """Convierte `src` a WAV mono PCM 16 bits 24 kHz. Sin shell; argumentos en lista."""
     exe = ffmpeg or shutil.which("ffmpeg")
     if not exe:

@@ -12,8 +12,9 @@ import tempfile
 import threading
 import time
 from collections import defaultdict, deque
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator, Optional
+from typing import Any
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -105,7 +106,7 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "desconocido"
 
 
-def _sanitize_filename(name: Optional[str]) -> str:
+def _sanitize_filename(name: str | None) -> str:
     base = Path(name or "audio").name
     return re.sub(r"[^A-Za-z0-9._-]", "_", base)[:100] or "audio"
 
@@ -123,12 +124,12 @@ class DraftRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def create_app(
-    centinela: Optional[Centinela] = None,
+    centinela: Centinela | None = None,
     *,
-    frontend_origin: Optional[str] = None,
+    frontend_origin: str | None = None,
     rate_limit: int = 120,
     expensive_rate_limit: int = 6,
-    ffmpeg: Optional[str] = None,
+    ffmpeg: str | None = None,
     max_streams: int = MAX_STREAMS,
 ) -> FastAPI:
     if frontend_origin is None:
@@ -322,7 +323,7 @@ def create_app(
                     try:
                         ev = await asyncio.wait_for(q.get(), timeout=SSE_PING_S)
                         yield sse_format(ev)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         yield ": ping\n\n"
             finally:
                 bus.unsubscribe(q)

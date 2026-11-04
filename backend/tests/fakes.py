@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 
 from src.clients.meta import AlertText, EvidenceClaim, LLMOpinion, ReportExtraction
 from src.models.schemas import ClaimType, VerdictStatus
@@ -28,7 +28,7 @@ def png_bytes() -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 
 
-def tool_call(name: str, args: str = "{}", id: Optional[str] = None) -> Any:
+def tool_call(name: str, args: str = "{}", id: str | None = None) -> Any:
     return SimpleNamespace(
         id=id or f"call_{name}", type="function", function=SimpleNamespace(name=name, arguments=args)
     )
@@ -44,20 +44,20 @@ class FakeMeta:
     def __init__(
         self,
         *,
-        turns: Optional[list[list[Any]]] = None,
-        extraction: Optional[ReportExtraction] = None,
-        opinion: Optional[LLMOpinion] = None,
+        turns: list[list[Any]] | None = None,
+        extraction: ReportExtraction | None = None,
+        opinion: LLMOpinion | None = None,
         alert_text: str = "Inundación en Jirón Progreso. Aléjese de las calles con agua.",
         alert_text_en: str = "Flooding in Jirón Progreso. Stay away from flooded streets.",
-        bulletin: Optional[BulletinExtraction] = None,
-        photo: Optional[PhotoDescription] = None,
-        sam_counts: Optional[dict[str, int]] = None,
+        bulletin: BulletinExtraction | None = None,
+        photo: PhotoDescription | None = None,
+        sam_counts: dict[str, int] | None = None,
         sam_fail: tuple[str, ...] = (),
         fail_orchestrator: bool = False,
         fail_bulletin: bool = False,
         parallel_probe: bool = False,
-        parse_errors: Optional[dict[type, list[BaseException]]] = None,
-        create_errors: Optional[list[BaseException]] = None,
+        parse_errors: dict[type, list[BaseException]] | None = None,
+        create_errors: list[BaseException] | None = None,
     ) -> None:
         self.turns = list(turns or [])
         self.extraction = extraction or ReportExtraction(
@@ -100,7 +100,7 @@ class FakeMeta:
         self.parse_errors = {k: list(v) for k, v in (parse_errors or {}).items()}
         self.create_errors = list(create_errors or [])
         self.alert_started = threading.Event()
-        self.opinion_saw_alert: Optional[bool] = None
+        self.opinion_saw_alert: bool | None = None
         self.photo_barrier = threading.Barrier(5, timeout=3)
         self.photo_parallel = True
         self._lock = threading.Lock()
@@ -166,7 +166,7 @@ class FakeMeta:
 
 
 def fake_transcriber(text: str = "En el Jirón Progreso el agua entra a tres casas."):
-    def _t(path, places=None):  # noqa: ARG001
+    def _t(path, places=None):
         return text
 
     return _t
@@ -198,7 +198,7 @@ def length_error(completion_tokens: int = 8192, reasoning_tokens: int = 8100) ->
 
 
 def status_error(status: int = 400, message: str = "unsupported parameter: reasoning_effort",
-                 param: Optional[str] = "reasoning_effort") -> BaseException:
+                 param: str | None = "reasoning_effort") -> BaseException:
     """Error HTTP del SDK (400 = parámetro rechazado, 401 = clave, ...)."""
     import httpx2
     import openai

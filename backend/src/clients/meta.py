@@ -15,9 +15,9 @@ import logging
 import os
 import re
 import wave
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import requests
 from pydantic import BaseModel
@@ -96,7 +96,7 @@ class MetaAPIError(RuntimeError):
     el log del servidor y los scripts de humo. NO se devuelve en las respuestas de la API.
     """
 
-    def __init__(self, message: str, diagnostics: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, diagnostics: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.diagnostics: dict[str, Any] = diagnostics or {}
 
@@ -193,7 +193,7 @@ def _usage(obj: Any) -> dict[str, Any]:
     }
 
 
-def _finish_reason(completion: Any) -> Optional[str]:
+def _finish_reason(completion: Any) -> str | None:
     try:
         return completion.choices[0].finish_reason
     except (AttributeError, IndexError, TypeError):
@@ -252,7 +252,7 @@ def call_model(fn: Any, *, kind: str, label: str, check_parsed: bool = True, **k
     tuned = tuning_kwargs(kind)
     plans = [("tuned", tuned), ("default", {})] if tuned else [("default", {})]
     attempts: list[dict[str, Any]] = []
-    last_exc: Optional[BaseException] = None
+    last_exc: BaseException | None = None
     for i, (params, extra) in enumerate(plans):
         try:
             resp = fn(**kwargs, **extra)
@@ -282,7 +282,7 @@ def parse_structured(client: Any, *, kind: str, label: str, **kwargs: Any) -> An
     return resp.choices[0].message.parsed
 
 
-def find_meta_error(exc: Optional[BaseException]) -> Optional[MetaAPIError]:
+def find_meta_error(exc: BaseException | None) -> MetaAPIError | None:
     """Primer MetaAPIError en la cadena de causas (para scripts y logs)."""
     seen = 0
     while exc is not None and seen < 10:
@@ -304,19 +304,19 @@ class ReportExtraction(BaseModel):
     `Report` entero: id, coordenadas y fecha los pone el código, no el modelo.
     """
 
-    place_name: Optional[str]
+    place_name: str | None
     claim_type: ClaimType
     asks_for_help: bool
-    severity: Optional[int]
-    houses_affected: Optional[int]
-    summary_en: Optional[str]
+    severity: int | None
+    houses_affected: int | None
+    summary_en: str | None
 
 
 SUMMARY_MAX_CHARS = 300
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 
-def clean_summary(summary: Optional[str], text: str, houses: Optional[int]) -> Optional[str]:
+def clean_summary(summary: str | None, text: str, houses: int | None) -> str | None:
     """Acepta el resumen en inglés solo si es una frase corta y no inventa cifras.
 
     Toda cifra del resumen debe aparecer en el texto original o ser houses_affected
@@ -373,8 +373,8 @@ def build_report(
     text: str,
     extraction: ReportExtraction,
     places: tuple[Place, ...],
-    report_id: Optional[str] = None,
-    source_audio: Optional[str] = None,
+    report_id: str | None = None,
+    source_audio: str | None = None,
 ) -> Report:
     """Arma el Report validando en código lo que propuso el modelo."""
     place = resolve_place(extraction.place_name, places)
@@ -395,16 +395,16 @@ def build_report(
         source_audio=source_audio,
         summary_en=clean_summary(extraction.summary_en, text, houses),
         # UTC con zona: se serializa con "Z" y el frontend lo muestra en hora local
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
 
 def extract_report(
     text: str,
     *,
-    report_id: Optional[str] = None,
-    source_audio: Optional[str] = None,
-    places: Optional[tuple[Place, ...]] = None,
+    report_id: str | None = None,
+    source_audio: str | None = None,
+    places: tuple[Place, ...] | None = None,
     client: Any = None,
 ) -> Report:
     """Convierte el texto libre de un reporte en un `Report` con structured output."""
@@ -459,7 +459,7 @@ def validate_wav(wav_path: str | Path) -> Path:
 def transcribe(
     wav_path: str | Path,
     *,
-    places: Optional[tuple[Place, ...]] = None,
+    places: tuple[Place, ...] | None = None,
     timeout: float = 120,
 ) -> str:
     """Transcribe un WAV con muse-voice-transcribe, sesgado al español y al gazetteer."""

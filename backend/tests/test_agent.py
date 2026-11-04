@@ -2,7 +2,6 @@ import asyncio
 import json
 
 import pytest
-
 from fakes import FakeMeta, fake_transcriber, tool_call
 from src.agent import STEPS, Centinela, EventBus, PipelineError
 from src.clients.meta import LLMOpinion, ReportExtraction
@@ -148,10 +147,10 @@ def test_invented_number_in_english_translation_falls_back_to_template():
 
 # --- boletín (Vigía) y foto (Ojo) ---------------------------------------------------
 
-from fakes import png_bytes  # noqa: E402
-from src.agent import AUDIO_STEPS, PHOTO_STEPS  # noqa: E402
-from src.tools.bulletin import BulletinExtraction, BulletinZone  # noqa: E402
-from src.tools.photo_eval import PhotoError  # noqa: E402
+from fakes import png_bytes
+from src.agent import AUDIO_STEPS, PHOTO_STEPS
+from src.tools.bulletin import BulletinExtraction, BulletinZone
+from src.tools.photo_eval import PhotoError
 
 
 def test_bulletin_pdf_replaces_simulated_bulletin_once(tmp_path):
@@ -275,7 +274,7 @@ def test_audio_steps_include_bulletin_before_verify():
 
 # --- latencia: tiempos en la traza, esfuerzo bajo y paralelismo -------------------------
 
-from src.clients.meta import AlertText, EvidenceClaim  # noqa: E402
+from src.clients.meta import AlertText, EvidenceClaim
 
 
 def events_with(c, agent, needle):
