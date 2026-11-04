@@ -169,6 +169,7 @@ Audio uploaded through the API is converted to mono 16-bit WAV at 24 kHz with ff
 
 - All demo evidence is simulated; the real-satellite path is untested.
 - SAM 3.1 handled flat water surfaces poorly in my tests (it returned only small patches). Photos are therefore only supporting evidence and never confirm a report on their own. People, houses and vehicles were not detected in my test photo.
+- The demo field photo is AI-generated, so it only shows how the photo pipeline works; it is not a real flood photograph.
 - The sensitive-term check on model explanations is keyword-based.
 - Figures taken from a report's text (houses affected) are labeled as *reported* in alert drafts, but not yet in the interface.
 - No authentication anywhere: the approval endpoint only changes a flag (demo decision), and the SSE trace, which includes transcriptions, is open. Do not use real personal data.
@@ -189,7 +190,7 @@ AI tools used: Claude Code (writing code from my specifications) and Claude in c
 - Fonts: Fraunces (display), Figtree (text) and JetBrains Mono (code), all under the SIL Open Font License, self-hosted via the npm packages `@fontsource-variable/fraunces`, `@fontsource-variable/figtree` and `@fontsource/jetbrains-mono`.
 - Logo: original mark made for this project.
 - Meta models: Muse Spark, Muse Voice Transcribe and SAM 3.1 via the Meta Model API.
-- Demo photo: [TEXTO DE LA FOTO]
+- Demo photo: simulated image generated with Muse Image (Meta Model API); not a real photograph.
 
 ## License
 
