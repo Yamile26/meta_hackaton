@@ -12,13 +12,15 @@ El modo photo imprime la caja (x1, y1), el tamaño de cada máscara (local a su 
 tamaño de la imagen; la fracción de agua se calcula sobre la imagen entera.
 """
 import argparse
+import json
+import logging
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from src.clients.meta import get_client  # noqa: E402
+from src.clients.meta import MetaAPIError, diagnose, get_client, latency_tuning  # noqa: E402
 from src.tools import bulletin as bt  # noqa: E402
 from src.tools import photo_eval as pe  # noqa: E402
 from src.tools.gazetteer import load_gazetteer, resolve_place  # noqa: E402
@@ -52,9 +54,9 @@ def run_photo(photo: Path, place: str | None, out: Path | None) -> int:
     try:
         desc = pe.describe_photo(url, client=client)
         print(desc.model_dump_json(indent=2))
-    except Exception as exc:  # noqa: BLE001
+    except MetaAPIError as exc:
         desc = None
-        print(f"falló: {exc}")
+        print(f"falló: {exc}\n{json.dumps(exc.diagnostics, ensure_ascii=False, indent=2, default=str)}")
     segs = {}
     for key, concept in pe.CONCEPTS.items():
         print(f"\n=== SAM 3.1: '{concept}' ===")
@@ -78,7 +80,7 @@ def run_photo(photo: Path, place: str | None, out: Path | None) -> int:
                     f"píxeles={int(inst.mask.sum())}, imagen {inst.image_w}x{inst.image_h}"
                 )
         except Exception as exc:  # noqa: BLE001
-            print(f"falló: {exc}")
+            print(f"falló: {json.dumps(diagnose(exc), ensure_ascii=False, default=str)}")
             segs[key] = pe.Segmentation(concept, error=True)
     canonical = resolve_place(place, load_gazetteer()) if place else None
     ev, frac, disc = pe.build_evidence("EV-100", "R-00", canonical.name if canonical else None, segs, desc)
@@ -101,9 +103,17 @@ def main() -> int:
     p.add_argument("--place", default=None)
     p.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
-    if args.cmd == "bulletin":
-        return run_bulletin(args.pdf)
-    return run_photo(args.photo, args.place, args.out)
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    print(f"LATENCY_TUNING={'on' if latency_tuning() else 'off'}")
+    try:
+        if args.cmd == "bulletin":
+            return run_bulletin(args.pdf)
+        return run_photo(args.photo, args.place, args.out)
+    except MetaAPIError as exc:
+        print(f"\nFalló: {exc}")
+        print("Causa (diagnóstico de la API, sin claves):")
+        print(json.dumps(exc.diagnostics, ensure_ascii=False, indent=2, default=str))
+        return 1
 
 
 if __name__ == "__main__":
