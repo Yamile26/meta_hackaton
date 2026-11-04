@@ -56,7 +56,7 @@ The operator sees all of this in a command-center interface, with the agent trac
 **Defenses built into the design**
 - **Prompt injection:** report text and PDF text are treated as untrusted data, never as instructions. The verifier can only cite evidence IDs that exist, and invented IDs are dropped.
 - **Model explanations are checked:** the model must quote fragments of the evidence summaries. If a quote does not appear verbatim, a number in the explanation is not in any quote, or the explanation mentions something sensitive (houses, a broken dike, people, injuries, evacuation…) that no quote supports, the explanation is discarded and only the code's reason is shown. This check is keyword-based: it stops obvious inventions, not all of them.
-- **Reported is not verified:** figures that come from a report's text (for example, houses affected) are never used to decide a verdict. In alert drafts they are labeled as reported ("viviendas afectadas reportadas por vecinos" / "homes reported affected by residents"); a model-written alert that cites the houses figure without that label is rejected and the template is used. Area percentages come from code and carry no such label. Known gap: the interface still shows the houses figure without the *reported* label.
+- **Reported is not verified:** figures that come from a report's text (for example, houses affected) are never used to decide a verdict. In alert drafts they are labeled as reported ("viviendas afectadas reportadas por vecinos" / "homes reported affected by residents"); a model-written alert that cites the houses figure without that label is rejected and the template is used. Area percentages come from code and carry no such label.
 - **Human in the loop:** alerts are drafts until a person approves them.
 
 **Priority formula** (`backend/src/tools/prioritize.py`): `score = severity × confirmed reports × exposure × flooded fraction`, where severity is the highest severity (1–3) among the zone's confirmed reports, and a report counts as confirmed only if its verdict is `confirmed` and it is not flagged **Needs review**. A zone with no confirmed reports scores 0 and gets no alert draft.
@@ -168,10 +168,9 @@ Audio uploaded through the API is converted to mono 16-bit WAV at 24 kHz with ff
 ## Limitations and next steps
 
 - All demo evidence is simulated; the real-satellite path is untested.
-- SAM 3.1 handled flat water surfaces poorly in my tests (it returned only small patches). Photos are therefore only supporting evidence and never confirm a report on their own. People, houses and vehicles were not detected in my test photo.
+- SAM 3.1's water segmentation was inconsistent across my test photos: patchy on one, good on another. Photos therefore only support other evidence; they never confirm a report on their own. Object detection also varied by photo: on one real test photo it found no people, houses or vehicles.
 - The demo field photo is AI-generated, so it only shows how the photo pipeline works; it is not a real flood photograph.
 - The sensitive-term check on model explanations is keyword-based.
-- Figures taken from a report's text (houses affected) are labeled as *reported* in alert drafts, but not yet in the interface.
 - No authentication anywhere: the approval endpoint only changes a flag (demo decision), and the SSE trace, which includes transcriptions, is open. Do not use real personal data.
 - State is in memory and is lost on restart; one pipeline runs at a time.
 - Verification thresholds are not calibrated on real flood data.
@@ -182,7 +181,7 @@ Audio uploaded through the API is converted to mono 16-bit WAV at 24 kHz with ff
 
 All code in this repository was written during the hackathon building period, starting on 1 November 2026. The commit history shows it. I did not reuse code from earlier projects.
 
-AI tools used: Claude Code (writing code from my specifications) and Claude in claude.ai (planning, review and script drafting). [AÑADE AQUÍ SOLO LAS OTRAS HERRAMIENTAS QUE USÉ, O BORRA ESTE CORCHETE] Design decisions, testing and review are mine.
+AI tools used: Claude Code (writing code from my specifications) and Claude in claude.ai (planning, review and script drafting). Design decisions, testing and review are mine.
 
 ## Credits and attribution
 
