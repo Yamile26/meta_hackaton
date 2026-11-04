@@ -49,7 +49,7 @@ def test_keywords_include_names_and_aliases():
 
 def test_build_report_validates_model_output():
     ext = ReportExtraction(
-        place_name="jr progreso", claim_type=ClaimType.flood, severity=7, houses_affected=-2,
+        place_name="jr progreso", claim_type=ClaimType.flood, asks_for_help=False, severity=7, houses_affected=-2,
         summary_en="  Flooding reported   in Jirón Progreso. ",
     )
     r = build_report("texto", ext, PLACES, report_id="R-09")
@@ -64,7 +64,7 @@ def test_build_report_validates_model_output():
 
 def test_build_report_unknown_place_has_no_coords():
     ext = ReportExtraction(
-        place_name="Lima", claim_type=ClaimType.need, severity=2, houses_affected=3, summary_en=None
+        place_name="Lima", claim_type=ClaimType.need, asks_for_help=False, severity=2, houses_affected=3, summary_en=None
     )
     r = build_report("texto", ext, PLACES)
     assert r.place_name is None and r.lat is None and r.lon is None
@@ -85,7 +85,7 @@ def test_extract_report_sends_untrusted_text_delimited():
     client = FakeClient(
         ReportExtraction(
             place_name="Las Palmeras",
-            claim_type=ClaimType.flood,
+            claim_type=ClaimType.flood, asks_for_help=False,
             severity=3,
             houses_affected=3,
             summary_en="Water reported in Las Palmeras.",

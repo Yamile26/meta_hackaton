@@ -62,7 +62,7 @@ class FakeMeta:
         self.turns = list(turns or [])
         self.extraction = extraction or ReportExtraction(
             place_name="Jirón Progreso",
-            claim_type=ClaimType.flood,
+            claim_type=ClaimType.flood, asks_for_help=False,
             severity=3,
             houses_affected=3,
             summary_en="A resident reports water entering 3 houses in Jirón Progreso.",

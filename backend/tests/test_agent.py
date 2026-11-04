@@ -46,7 +46,7 @@ def test_code_decides_verdict_even_if_llm_disagrees(tmp_path):
     client = FakeMeta(
         turns=ORDERED,
         extraction=ReportExtraction(
-            place_name="Avenida Central", claim_type=ClaimType.flood, severity=3, houses_affected=None, summary_en=None
+            place_name="Avenida Central", claim_type=ClaimType.flood, asks_for_help=False, severity=3, houses_affected=None, summary_en=None
         ),
         opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=["EV-05"], claims=[], reason="Yes."),
     )
@@ -189,7 +189,7 @@ def test_bulletin_cannot_add_dike_rumor_place():
             ],
         ),
         extraction=ReportExtraction(
-            place_name="Las Palmeras", claim_type=ClaimType.flood, severity=3, houses_affected=None,
+            place_name="Las Palmeras", claim_type=ClaimType.flood, asks_for_help=False, severity=3, houses_affected=None,
             summary_en="The dike broke.",
         ),
         opinion=LLMOpinion(status=VerdictStatus.confirmado, evidence_ids=[], claims=[], reason="Bulletin."),
@@ -211,7 +211,7 @@ def test_bulletin_failure_keeps_simulated_and_does_not_retry():
 def test_photo_flow_reverifies_report(tmp_path):
     client = FakeMeta(
         extraction=ReportExtraction(
-            place_name="Avenida Central", claim_type=ClaimType.flood, severity=2, houses_affected=None, summary_en=None
+            place_name="Avenida Central", claim_type=ClaimType.flood, asks_for_help=False, severity=2, houses_affected=None, summary_en=None
         ),
         opinion=LLMOpinion(status=VerdictStatus.contradicho, evidence_ids=["EV-05"], claims=[], reason="NDWI flat."),
     )
@@ -239,7 +239,7 @@ def test_photo_flow_reverifies_report(tmp_path):
 def test_photo_confirms_with_second_source():
     client = FakeMeta(
         extraction=ReportExtraction(
-            place_name="Las Palmeras", claim_type=ClaimType.flood, severity=3, houses_affected=None, summary_en=None
+            place_name="Las Palmeras", claim_type=ClaimType.flood, asks_for_help=False, severity=3, houses_affected=None, summary_en=None
         ),
     )
     c = make(client)
