@@ -20,8 +20,8 @@ Idiomas: `Report.text` y los nombres de lugares quedan en español. `Report.summ
 `AlertDraft.text` = texto en español para la comunidad, una línea en blanco (`\n\n`) y su
 traducción al inglés.
 
-Máscara de foto: PNG RGBA con fondo transparente, a la resolución de las máscaras de
-SAM 3.1; el frontend la superpone escalada al tamaño de la foto. Colores por clase:
+Máscara de foto: PNG RGBA al tamaño completo de la foto (w×h que reporta SAM), fondo
+transparente; el frontend la superpone escalada al tamaño de la foto. Colores por clase:
 agua `rgba(56,152,236,140)`, casas `rgba(163,163,163,150)`, vehículos
 `rgba(250,204,21,170)`, personas `rgba(242,107,29,190)` (de abajo arriba en ese orden).
 En evidencia de foto, `value` = fracción de la imagen segmentada como agua (0-1),
