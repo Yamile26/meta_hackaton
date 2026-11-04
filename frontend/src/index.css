@@ -177,6 +177,33 @@
   }
 }
 
+/* Agent trace: the running step breathes; the newest log line is briefly highlighted. */
+.trace-active {
+  animation: trace-breathe 1.8s ease-in-out infinite;
+}
+.trace-latest {
+  animation:
+    trace-in 260ms ease-out both,
+    trace-flash 1.6s ease-out both;
+}
+@keyframes trace-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(31, 122, 77, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(31, 122, 77, 0);
+  }
+}
+@keyframes trace-flash {
+  from {
+    background-color: var(--color-mint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

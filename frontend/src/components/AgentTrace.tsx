@@ -62,7 +62,7 @@ export function AgentTrace({ events, stream, activity }: TraceProps) {
                   className={cn(
                     "inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors duration-300",
                     s === "idle" && "text-fg-muted",
-                    s === "active" && "bg-brand text-white",
+                    s === "active" && "trace-active bg-brand text-white",
                     s === "done" && "bg-mint text-forest",
                   )}
                 >
@@ -76,7 +76,17 @@ export function AgentTrace({ events, stream, activity }: TraceProps) {
                   {s === "idle" && <span className="size-1.5 rounded-full bg-line" aria-hidden />}
                   {p.label}
                 </span>
-                {i < PIPELINE.length - 1 && <span className={cn("h-px w-3", s === "done" ? "bg-leaf" : "bg-line")} />}
+                {i < PIPELINE.length - 1 && (
+                  /* Connector fills once this step is done: progress reads left to right. */
+                  <span className="relative mx-0.5 h-0.5 w-5 overflow-hidden rounded-full bg-line" aria-hidden>
+                    <span
+                      className={cn(
+                        "absolute inset-0 origin-left bg-leaf transition-transform duration-500 ease-out",
+                        s === "done" ? "scale-x-100" : "scale-x-0",
+                      )}
+                    />
+                  </span>
+                )}
               </li>
             );
           })}
@@ -91,7 +101,13 @@ export function AgentTrace({ events, stream, activity }: TraceProps) {
           <li className="text-sm leading-6 text-fg-muted">{S.waitingEvents}</li>
         ) : (
           events.map((ev, i) => (
-            <li key={`${ev.ts}-${i}`} className="grid animate-trace-in grid-cols-[72px_96px_1fr] gap-2 text-sm leading-6">
+            <li
+              key={`${ev.ts}-${i}`}
+              className={cn(
+                "-mx-2 grid animate-trace-in grid-cols-[72px_96px_1fr] gap-2 rounded px-2 text-sm leading-6",
+                i === events.length - 1 && !activity && "trace-latest",
+              )}
+            >
               <span className="tabular-nums text-fg-muted">{formatTime(ev.ts)}</span>
               <span className={cn("truncate font-semibold", ev.agent === "orquestador" ? "text-fg-muted" : "text-brand")}>
                 {AGENT_LABEL[ev.agent] ?? ev.agent}
@@ -103,7 +119,7 @@ export function AgentTrace({ events, stream, activity }: TraceProps) {
           ))
         )}
         {activity && (
-          <li className="grid animate-trace-in grid-cols-[72px_96px_1fr] gap-2 text-sm leading-6">
+          <li className="trace-latest -mx-2 grid animate-trace-in grid-cols-[72px_96px_1fr] gap-2 rounded px-2 text-sm leading-6">
             <Loader2 className="mt-1 size-4 animate-spin text-brand" aria-hidden />
             <span className="font-semibold text-brand">{AGENT_LABEL.ojo}</span>
             <span className="min-w-0 truncate font-medium text-forest">{activity}</span>
