@@ -6,7 +6,7 @@ Centinela verifies community flood reports against satellite, photo and bulletin
 
 Built for the **Meta Global AI Developer Hackathon** · Indie Developer track · *Build for Your World*.
 
-- Demo video: TODO (paste the link)
+- Demo video: [TODO (paste the link)](https://youtu.be/6GhIJDUOMWI)
 - Demo post on X: TODO (paste the link)
 - Author: Yamile Del Aguila, Pucallpa, Peru (solo entry)
 
