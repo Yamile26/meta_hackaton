@@ -8,8 +8,7 @@ Built for the **Meta Global AI Developer Hackathon** · Indie Developer track ·
 
 - Demo video: https://youtu.be/6GhIJDUOMWI
 - Demo post on X: TODO (paste the link)
-- Author: Yamile Del Aguila, Pucallpa, Peru (solo entry)
-
+- Author: Yamile Del Aguila, Pucallpa, Peru
 > **Demo data is simulated.** The scenario, the evidence, the bulletin and the evaluation cases are simulated and labeled as such. The model calls (voice, extraction, vision, segmentation) are real. See [What is real and what is simulated](#what-is-real-and-what-is-simulated).
 
 ---
