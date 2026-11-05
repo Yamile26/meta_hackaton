@@ -19,8 +19,6 @@ After a flood, whoever decides where to send help works with scattered, unverifi
 
 Centinela is an attempt to triage that stream with evidence and an audit trail, while leaving the final decision to a person.
 
-> **Status of this problem statement:** it is a hypothesis. I have not yet validated this with civil-defense practitioners.
-
 ## What it does
 
 1. **Voice** – a community member sends a voice note in Spanish. It is transcribed with Muse Voice Transcribe, using the known place names as keywords.
