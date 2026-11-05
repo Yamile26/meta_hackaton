@@ -7,7 +7,7 @@ Centinela verifies community flood reports against satellite, photo and bulletin
 Built for the **Meta Global AI Developer Hackathon** · Indie Developer track · *Build for Your World*.
 
 - Demo video: https://youtu.be/6GhIJDUOMWI
-- Demo post on X: TODO (paste the link)
+- Demo post on X: https://x.com/ypdv26/status/2118141413158187292?a=PdOB26DZ92aL6hy_d9Q&s=20
 - Author: Yamile Del Aguila, Pucallpa, Peru
 > **Demo data is simulated.** The scenario, the evidence, the bulletin and the evaluation cases are simulated and labeled as such. The model calls (voice, extraction, vision, segmentation) are real. See [What is real and what is simulated](#what-is-real-and-what-is-simulated).
 
